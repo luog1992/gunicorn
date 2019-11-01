@@ -54,6 +54,7 @@ except ImportError:
         pass
 
 
+# done
 def load_class(uri, default="gunicorn.workers.sync.SyncWorker",
         section="gunicorn.workers"):
     if inspect.isclass(uri):
@@ -109,6 +110,7 @@ positionals = (
 )
 
 
+# done: 但是不知道啥意思
 def get_arity(f):
     sig = inspect.signature(f)
     arity = 0
@@ -211,6 +213,7 @@ def is_ipv6(addr):
     return True
 
 
+# done
 def parse_address(netloc, default_port='8000'):
     if re.match(r'unix:(//)?', netloc):
         return re.split(r'unix:(//)?', netloc)[-1]
@@ -549,6 +552,7 @@ def reraise(tp, value, tb=None):
         tb = None
 
 
+# done
 def bytes_to_str(b):
     if isinstance(b, str):
         return b

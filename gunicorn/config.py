@@ -5,6 +5,13 @@
 
 # Please remember to run "make -C docs html" after update "desc" attributes.
 
+"""
+要点:
+
+1. 如何使用元类SettingMeta注册一系列Setting
+2. 通过每个Setting的add_parse的方法构造命令行parser
+"""
+
 import argparse
 import copy
 import grp
@@ -32,6 +39,7 @@ def make_settings(ignore=None):
         setting = s()
         if setting.name in ignore:
             continue
+        # todo: copy的意义是? 每次setting都是新实例啊!?
         settings[setting.name] = setting.copy()
     return settings
 
@@ -46,8 +54,11 @@ def auto_int(_, x):
 class Config(object):
 
     def __init__(self, usage=None, prog=None):
+        # ``dict``
         self.settings = make_settings()
+        # ``str``
         self.usage = usage
+        # ``str``, 一般是 ``gunicorn``
         self.prog = prog or os.path.basename(sys.argv[0])
         self.env_orig = os.environ.copy()
 
@@ -71,6 +82,7 @@ class Config(object):
             return shlex.split(self.env_orig['GUNICORN_CMD_ARGS'])
         return []
 
+    # 命令行
     def parser(self):
         kwargs = {
             "usage": self.usage,
@@ -222,6 +234,7 @@ class Config(object):
         return global_conf
 
 
+# done
 class SettingMeta(type):
     def __new__(cls, name, bases, attrs):
         super_new = super().__new__
@@ -293,6 +306,7 @@ class Setting(object):
         parser.add_argument(*args, **kwargs)
 
     def copy(self):
+        # todo: copy一个对象?
         return copy.copy(self)
 
     def get(self):
@@ -307,6 +321,7 @@ class Setting(object):
         return (self.section == other.section and
                 self.order < other.order)
     __cmp__ = __lt__
+
 
 Setting = SettingMeta('Setting', (Setting,), {})
 
@@ -541,6 +556,7 @@ class ConfigFile(Setting):
            prefix.
         """
 
+
 class Bind(Setting):
     name = "bind"
     action = "append"
@@ -644,6 +660,7 @@ class WorkerClass(Setting):
         This alternative syntax will load the gevent class:
         ``gunicorn.workers.ggevent.GeventWorker``.
         """
+
 
 class WorkerThreads(Setting):
     name = "threads"
@@ -1016,6 +1033,7 @@ class Daemon(Setting):
         background.
         """
 
+
 class Env(Setting):
     name = "raw_env"
     action = "append"
@@ -1048,6 +1066,7 @@ class Pidfile(Setting):
 
         If not set, no PID file will be written.
         """
+
 
 class WorkerTmpDir(Setting):
     name = "worker_tmp_dir"
@@ -1101,6 +1120,7 @@ class Group(Setting):
         retrieved with a call to ``pwd.getgrnam(value)`` or ``None`` to not
         change the worker processes group.
         """
+
 
 class Umask(Setting):
     name = "umask"
@@ -1214,6 +1234,7 @@ class AccessLog(Setting):
 
         ``'-'`` means log to stdout.
         """
+
 
 class DisableRedirectAccessToSyslog(Setting):
     name = "disable_redirect_access_to_syslog"
@@ -1478,6 +1499,7 @@ class StatsdHost(Setting):
     .. versionadded:: 19.1
     """
 
+
 # Datadog Statsd (dogstatsd) tags. https://docs.datadoghq.com/developers/dogstatsd/
 class DogstatsdTags(Setting):
     name = "dogstatsd_tags"
@@ -1491,6 +1513,7 @@ class DogstatsdTags(Setting):
 
     .. versionadded:: 20
     """
+
 
 class StatsdPrefix(Setting):
     name = "statsd_prefix"
@@ -1667,6 +1690,7 @@ class PostWorkerInit(Setting):
         Worker.
         """
 
+
 class WorkerInt(Setting):
     name = "worker_int"
     section = "Server Hooks"
@@ -1810,6 +1834,7 @@ class NumWorkersChanged(Setting):
         be ``None``.
         """
 
+
 class OnExit(Setting):
     name = "on_exit"
     section = "Server Hooks"
@@ -1890,6 +1915,7 @@ class CertFile(Setting):
     SSL certificate file
     """
 
+
 class SSLVersion(Setting):
     name = "ssl_version"
     section = "SSL"
@@ -1922,6 +1948,7 @@ class SSLVersion(Setting):
        constants.
     """
 
+
 class CertReqs(Setting):
     name = "cert_reqs"
     section = "SSL"
@@ -1931,6 +1958,7 @@ class CertReqs(Setting):
     desc = """\
     Whether client certificate is required (see stdlib ssl module's)
     """
+
 
 class CACerts(Setting):
     name = "ca_certs"
@@ -1943,6 +1971,7 @@ class CACerts(Setting):
     CA certificates file
     """
 
+
 class SuppressRaggedEOFs(Setting):
     name = "suppress_ragged_eofs"
     section = "SSL"
@@ -1953,6 +1982,7 @@ class SuppressRaggedEOFs(Setting):
     desc = """\
     Suppress ragged EOFs (see stdlib ssl module's)
     """
+
 
 class DoHandshakeOnConnect(Setting):
     name = "do_handshake_on_connect"
