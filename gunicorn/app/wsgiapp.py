@@ -11,7 +11,10 @@ from gunicorn import util
 
 
 class WSGIApplication(Application):
+
+    # done
     def init(self, parser, opts, args):
+        # PasteDeploy config file
         if opts.paste:
             from .pasterapp import has_logging_config
 
@@ -32,9 +35,11 @@ class WSGIApplication(Application):
         if not args:
             parser.error("No application module specified.")
 
+        # ``args[0]`` 如: ``app.wsgi:app``
         self.cfg.set("default_proc_name", args[0])
         self.app_uri = args[0]
 
+    # done
     def load_wsgiapp(self):
         return util.import_app(self.app_uri)
 
@@ -42,6 +47,7 @@ class WSGIApplication(Application):
         from .pasterapp import get_wsgi_app
         return get_wsgi_app(self.app_uri, defaults=self.cfg.paste_global_conf)
 
+    # done
     def load(self):
         if self.cfg.paste is not None:
             return self.load_pasteapp()

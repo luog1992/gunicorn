@@ -20,13 +20,17 @@ class BaseApplication(object):
     the various necessities for any given web framework.
     """
     def __init__(self, usage=None, prog=None):
+        #: ``str``, 应用使用描述
         self.usage = usage
+        #: ``Config``
         self.cfg = None
         self.callable = None
+        #: ``str``, 一般是 ``'gunicorn'``
         self.prog = prog
         self.logger = None
         self.do_load_config()
 
+    # done
     def do_load_config(self):
         """
         Loads the configuration
@@ -39,16 +43,26 @@ class BaseApplication(object):
             sys.stderr.flush()
             sys.exit(1)
 
+    # done
     def load_default_config(self):
         # init configuration
         self.cfg = Config(self.usage, prog=self.prog)
 
+    # done
     def init(self, parser, opts, args):
+        """
+        :param parser: ``parser = cfg.parser()``
+        :param opts: 参数 ``opts = parser.parse_args()``
+        :param args: 要调用的callable ``args = opts.args``, 如: ['app.wsgi:app']
+        :return: ``dict`` or ``None``
+        """
         raise NotImplementedError
 
+    # done: 加载App
     def load(self):
         raise NotImplementedError
 
+    # done
     def load_config(self):
         """
         This method is used to load the configuration from one or several input(s).
@@ -81,6 +95,7 @@ class Application(BaseApplication):
     # 'init' and 'load' methods are implemented by WSGIApplication.
     # pylint: disable=abstract-method
 
+    # done
     def chdir(self):
         # chdir to the configured path before loading,
         # default is the current dir
@@ -90,6 +105,7 @@ class Application(BaseApplication):
         if self.cfg.chdir not in sys.path:
             sys.path.insert(0, self.cfg.chdir)
 
+    # done
     def get_config_from_filename(self, filename):
 
         if not os.path.exists(filename):
@@ -108,9 +124,11 @@ class Application(BaseApplication):
 
         return vars(mod)
 
+    # done
     def get_config_from_module_name(self, module_name):
         return vars(importlib.import_module(module_name))
 
+    # done
     def load_config_from_module_name_or_filename(self, location):
         """
         Loads the configuration file: the file is a python file, otherwise raise an RuntimeError
@@ -140,9 +158,11 @@ class Application(BaseApplication):
 
         return cfg
 
+    # done
     def load_config_from_file(self, filename):
         return self.load_config_from_module_name_or_filename(location=filename)
 
+    # done
     def load_config(self):
         # parse console args
         parser = self.cfg.parser()
@@ -161,6 +181,7 @@ class Application(BaseApplication):
 
         env_args = parser.parse_args(self.cfg.get_cmd_args_from_env())
 
+        # 从配置文件加载配置
         if args.config:
             self.load_config_from_file(args.config)
         elif env_args.config:
@@ -178,6 +199,7 @@ class Application(BaseApplication):
                 continue
             self.cfg.set(k.lower(), v)
 
+        # 命令行指定的参数优先级最高
         # Lastly, update the configuration with any command line settings.
         for k, v in vars(args).items():
             if v is None:

@@ -323,6 +323,7 @@ def write_error(sock, status_int, reason, mesg):
     write_nonblock(sock, http.encode('latin1'))
 
 
+# done: 获取App
 def import_app(module):
     parts = module.split(":", 1)
     if len(parts) == 1:
@@ -354,6 +355,7 @@ def import_app(module):
     return app
 
 
+# done
 def getcwd():
     # get current path, try to use PWD env first
     try:
