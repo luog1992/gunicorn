@@ -12,6 +12,8 @@ pytest = "*"
 pytest-cov = "==2.5.1"
 sphinx-rtd-theme = "*"
 Sphinx = "*"
+e1839a8 = {editable = true,path = "."}
+gunicorn = {editable = true,path = "."}
 
 [requires]
 python_version = "3.7"
