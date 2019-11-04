@@ -212,7 +212,9 @@ class Application(BaseApplication):
         # set up import paths and follow symlinks
         self.chdir()
 
+    # done
     def run(self):
+        # 检查配置
         if self.cfg.check_config:
             try:
                 self.load()
@@ -224,9 +226,11 @@ class Application(BaseApplication):
                 sys.exit(1)
             sys.exit(0)
 
+        # 设置debug
         if self.cfg.spew:
             debug.spew()
 
+        # 把当前进程(?)设置为守护进程
         if self.cfg.daemon:
             util.daemonize(self.cfg.enable_stdio_inheritance)
 

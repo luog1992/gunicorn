@@ -382,19 +382,34 @@ def is_hoppish(header):
     return header.lower().strip() in hop_headers
 
 
+# done: 大概看明白了
 def daemonize(enable_stdio_inheritance=False):
     """\
     Standard daemonization of a process.
-    http://www.svbug.com/documentation/comp.unix.programmer-FAQ/faq_2.html#SEC16
+    https://www.svbug.com/documentation/comp.unix.programmer-FAQ/faq_2.html#SEC16
     """
     if 'GUNICORN_FD' not in os.environ:
+        # 子进程从父进程继承了 SessionID、进程组ID和打开的终端, 子进程如果要脱离这些，代
+        # 码中可通过调用setsid来实现
+        # 调用setsid函数的进程若不是一个进程组的组长就会创建一个新会话. 若调用setsid函数
+        # 的进程就是一个进程组的组长，则该函数会返回出错。 为了解决这种情况，通常函数需要先
+        # fork，然后父进程退出，由子进程执行setsid
+
+        # 如果是父进程
         if os.fork():
             os._exit(0)
+
+        # 如果是子进程
         os.setsid()
 
+        # fork() again so the parent, (the session group leader), can exit.
+        # This means that we, as a non-session group leader, can never regain
+        # a controlling terminal.
         if os.fork():
             os._exit(0)
 
+        # umask so that we have complete control over the permissions
+        # of anything we write.
         os.umask(0o22)
 
         # In both the following any file descriptors above stdin
@@ -408,13 +423,17 @@ def daemonize(enable_stdio_inheritance=False):
             # /dev/null. The expectation is that users have
             # specified the --error-log option.
 
+            # 关闭文件描述符 stdin stdout stderr
             closerange(0, 3)
 
             fd_null = os.open(REDIRECT_TO, os.O_RDWR)
 
+            # 如果 stdin 不是(没有重定向到) fd_null
             if fd_null != 0:
+                # 把 stdin 重定向到 fd_null
                 os.dup2(fd_null, 0)
 
+            # 将 stdout stderr 也重定向到 fd_null
             os.dup2(fd_null, 1)
             os.dup2(fd_null, 2)
 
