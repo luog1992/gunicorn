@@ -61,6 +61,7 @@ class Arbiter(object):
         self.systemd = False
         self.worker_age = 0
         self.reexec_pid = 0
+        # todo: master_pid 会在 self.reexec self.start 中被赋值
         self.master_pid = 0
         self.master_name = "Master"
 
@@ -71,11 +72,14 @@ class Arbiter(object):
 
         # init start context
         self.START_CTX = {
+            # ['python3.7', 'gunicorn', '-w', '1', 'app.wsgi:app']
             "args": args,
             "cwd": cwd,
-            0: sys.executable
+            0: sys.executable       # python3.7
         }
+        self.log.debug('...START_CTX: %s' % self.START_CTX)
 
+    # done
     def _get_num_workers(self):
         return self._num_workers
 
@@ -85,6 +89,7 @@ class Arbiter(object):
         self.cfg.nworkers_changed(self, value, old_value)
     num_workers = property(_get_num_workers, _set_num_workers)
 
+    # todo: 看 log 代码
     def setup(self, app):
         self.app = app
         self.cfg = app.cfg
@@ -101,13 +106,15 @@ class Arbiter(object):
         self.num_workers = self.cfg.workers
         self.timeout = self.cfg.timeout
         self.proc_name = self.cfg.proc_name
+        self.log.debug('...proc_name: %s' % self.proc_name)
 
         self.log.debug('Current configuration:\n{0}'.format(
             '\n'.join(
                 '  {0}: {1}'.format(config, value.value)
-                for config, value
-                in sorted(self.cfg.settings.items(),
-                          key=lambda setting: setting[1]))))
+                for config, value in
+                sorted(self.cfg.settings.items(), key=lambda s: s[1])
+            )
+        ))
 
         # set enviroment' variables
         if self.cfg.env:
@@ -118,19 +125,20 @@ class Arbiter(object):
             self.app.wsgi()
 
     def start(self):
-        """\
-        Initialize the arbiter. Start listening and set pidfile if needed.
+        """Initialize the arbiter. Start listening and set pidfile if needed.
         """
         self.log.info("Starting gunicorn %s", __version__)
 
         if 'GUNICORN_PID' in os.environ:
             self.master_pid = int(os.environ.get('GUNICORN_PID'))
+            # todo: 加个数字后缀?
             self.proc_name = self.proc_name + ".2"
             self.master_name = "Master.2"
 
         self.pid = os.getpid()
         if self.cfg.pidfile is not None:
             pidname = self.cfg.pidfile
+            # todo: 什么时候 master_pid != 0 ?
             if self.master_pid != 0:
                 pidname += ".2"
             self.pidfile = Pidfile(pidname)
@@ -152,6 +160,7 @@ class Arbiter(object):
                 for fd in os.environ.pop('GUNICORN_FD').split(','):
                     fds.append(int(fd))
 
+            # create_sockets中会关闭(旧)fds
             self.LISTENERS = sock.create_sockets(self.cfg, self.log, fds)
 
         listeners_str = ",".join([str(l) for l in self.LISTENERS])
@@ -194,7 +203,8 @@ class Arbiter(object):
             self.wakeup()
 
     def run(self):
-        "Main master loop."
+        """Main master loop.
+        """
         self.start()
         util._setproctitle("master [%s]" % self.proc_name)
 
@@ -240,7 +250,8 @@ class Arbiter(object):
             sys.exit(-1)
 
     def handle_chld(self, sig, frame):
-        "SIGCHLD handling"
+        """SIGCHLD handling
+        """
         self.reap_workers()
         self.wakeup()
 
@@ -336,6 +347,8 @@ class Arbiter(object):
         try:
             os.write(self.PIPE[1], b'.')
         except IOError as e:
+            # EAGAIN: try again
+            # EINTR: interrupted system call
             if e.errno not in [errno.EAGAIN, errno.EINTR]:
                 raise
 

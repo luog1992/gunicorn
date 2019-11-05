@@ -14,6 +14,7 @@ sphinx-rtd-theme = "*"
 Sphinx = "*"
 e1839a8 = {editable = true,path = "."}
 gunicorn = {editable = true,path = "."}
+ipython = "*"
 
 [requires]
 python_version = "3.7"

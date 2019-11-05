@@ -8,6 +8,7 @@ import os
 import tempfile
 
 
+# done
 class Pidfile(object):
     """\
     Manage a PID file. If a specific name is provided
@@ -41,7 +42,9 @@ class Pidfile(object):
             self.fname = fname
         os.close(fd)
 
+        # 文件属主（所有者）可读，属组可写，其他没有权限
         # set permissions to -rw-r--r--
+        # todo: 有问题啊: 420 == -r---w----
         os.chmod(self.fname, 420)
 
     def rename(self, path):
@@ -72,15 +75,16 @@ class Pidfile(object):
                     return
 
                 try:
+                    # signal 0 用于检测进程是否运行中
                     os.kill(wpid, 0)
                     return wpid
                 except OSError as e:
-                    if e.args[0] == errno.EPERM:
+                    if e.args[0] == errno.EPERM:    # operation not permitted
                         return wpid
-                    if e.args[0] == errno.ESRCH:
+                    if e.args[0] == errno.ESRCH:    # no such process
                         return
                     raise
         except IOError as e:
-            if e.args[0] == errno.ENOENT:
+            if e.args[0] == errno.ENOENT:   # no such file or directory
                 return
             raise

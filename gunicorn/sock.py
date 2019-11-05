@@ -14,9 +14,16 @@ from gunicorn import util
 from gunicorn.socketfromfd import fromfd
 
 
+# done
 class BaseSocket(object):
 
     def __init__(self, address, conf, log, fd=None):
+        """
+        :param tuple|str|bytes address: socket地址
+        :param Config conf: 配置
+        :param Logger log: 日志
+        :param int fd: fd
+        """
         self.log = log
         self.conf = conf
 
@@ -27,7 +34,7 @@ class BaseSocket(object):
         else:
             sock = socket.fromfd(fd, self.FAMILY, socket.SOCK_STREAM)
             os.close(fd)
-            bound = True
+            bound = True    # fd存在, 说明sock已经绑定了
 
         self.sock = self.set_options(sock, bound=bound)
 
@@ -44,17 +51,20 @@ class BaseSocket(object):
             try:
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
             except socket.error as err:
+                # ENOPROTOOPT: protocol not available
+                # EINVAL: invalid argument
                 if err.errno not in (errno.ENOPROTOOPT, errno.EINVAL):
                     raise
         if not bound:
             self.bind(sock)
-        sock.setblocking(0)
+        sock.setblocking(0)     # set to non-blocking
 
+        # todo: 确定 inheritable (对worker)意味着啥? worker也可以监听相同的sock?
         # make sure that the socket can be inherited
         if hasattr(sock, "set_inheritable"):
             sock.set_inheritable(True)
 
-        sock.listen(self.conf.backlog)
+        sock.listen(self.conf.backlog)  # default is 2048
         return sock
 
     def bind(self, sock):
@@ -72,6 +82,7 @@ class BaseSocket(object):
         self.sock = None
 
 
+# done
 class TCPSocket(BaseSocket):
 
     FAMILY = socket.AF_INET
@@ -86,10 +97,12 @@ class TCPSocket(BaseSocket):
         return "%s://%s:%d" % (scheme, addr[0], addr[1])
 
     def set_options(self, sock, bound=False):
+        # 关闭Nagle算法
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         return super().set_options(sock, bound=bound)
 
 
+# done
 class TCP6Socket(TCPSocket):
 
     FAMILY = socket.AF_INET6
@@ -99,6 +112,7 @@ class TCP6Socket(TCPSocket):
         return "http://[%s]:%d" % (host, port)
 
 
+# done
 class UnixSocket(BaseSocket):
 
     FAMILY = socket.AF_UNIX
@@ -108,13 +122,14 @@ class UnixSocket(BaseSocket):
             try:
                 st = os.stat(addr)
             except OSError as e:
-                if e.args[0] != errno.ENOENT:
+                if e.args[0] != errno.ENOENT:   # no such file or directory
                     raise
             else:
                 if stat.S_ISSOCK(st.st_mode):
                     os.remove(addr)
                 else:
                     raise ValueError("%r is not a socket" % addr)
+        # todo: 为啥上面要删掉(?) addr?
         super().__init__(addr, conf, log, fd=fd)
 
     def __str__(self):
@@ -127,6 +142,7 @@ class UnixSocket(BaseSocket):
         os.umask(old_umask)
 
 
+# done
 def _sock_type(addr):
     if isinstance(addr, tuple):
         if util.is_ipv6(addr[0]):
@@ -140,6 +156,7 @@ def _sock_type(addr):
     return sock_type
 
 
+# done
 def create_sockets(conf, log, fds=None):
     """
     Create a new socket for the configured addresses or file descriptors.
@@ -152,9 +169,13 @@ def create_sockets(conf, log, fds=None):
 
     # get it only once
     addr = conf.address
+
+    # fd addr: [3, 4, 5,...]
     fdaddr = [bind for bind in addr if isinstance(bind, int)]
     if fds:
         fdaddr += list(fds)
+
+    # bind addr: [('127.0.0.1', 8000)]
     laddr = [bind for bind in addr if not isinstance(bind, int)]
 
     # check ssl config early to raise the error on startup
@@ -166,17 +187,26 @@ def create_sockets(conf, log, fds=None):
         raise ValueError('keyfile "%s" does not exist' % conf.keyfile)
 
     # sockets are already bound
+    # 从文件描述符(int)获得socket
     if fdaddr:
         for fd in fdaddr:
+            #            fd --------> file
+            #             ↓            ↑
+            #  sock --> new_fd ---------
+
+            # fromfd 函数中无论py2/py3都会复制fd
+            # 所以! sock 对应的 new_fd 什么时候关闭? sock被回收后?
             sock = fromfd(fd)
             sock_name = sock.getsockname()
             sock_type = _sock_type(sock_name)
+            # sock_type 中会复制fd, 并关闭(旧)fd
             listener = sock_type(sock_name, conf, log, fd=fd)
             listeners.append(listener)
 
         return listeners
 
     # no sockets is bound, first initialization of gunicorn in this env.
+    # 从bind((127.0.0.1, 8000))创建socket
     for addr in laddr:
         sock_type = _sock_type(addr)
         sock = None

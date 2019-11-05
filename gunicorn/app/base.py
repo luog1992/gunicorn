@@ -164,6 +164,7 @@ class Application(BaseApplication):
 
     # done
     def load_config(self):
+        # todo: 下面的逻辑限定了只能从命令行运行程序啊!
         # parse console args
         parser = self.cfg.parser()
         args = parser.parse_args()

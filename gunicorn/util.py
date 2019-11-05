@@ -245,12 +245,20 @@ def parse_address(netloc, default_port='8000'):
     return host.lower(), port
 
 
+# done
 def close_on_exec(fd):
+    # 无论是fork还是system()出子进程，如果父进程里在open某个文件后（包括socket fd:
+    # 特别是port在子进程里被占用）没有设置FD_CLOSEEXEC标志，就会引起各种不可预料的问题
+    # 如: 当B fork进程C的时候，C也会继承B的11111端口socket文件描述符，当B挂了的时候，
+    # C就会占领监听权。
+    # 系统给出的解决方案是：close_on_exec。当父进程打开文件时，只需要设置FD_CLOSEXEC
+    # 标志位，则当fork后exec其他程序的时候，内核自动会将子进程继承的父进程FD关闭。
     flags = fcntl.fcntl(fd, fcntl.F_GETFD)
     flags |= fcntl.FD_CLOEXEC
     fcntl.fcntl(fd, fcntl.F_SETFD, flags)
 
 
+# done: 设置fd为非阻塞
 def set_non_blocking(fd):
     flags = fcntl.fcntl(fd, fcntl.F_GETFL) | os.O_NONBLOCK
     fcntl.fcntl(fd, fcntl.F_SETFL, flags)

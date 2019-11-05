@@ -9,6 +9,7 @@ import socket
 SD_LISTEN_FDS_START = 3
 
 
+# done: systemd socket activation相关
 def listen_fds(unset_environment=True):
     """
     Get the number of sockets inherited from systemd socket activation.
@@ -33,6 +34,8 @@ def listen_fds(unset_environment=True):
         `<https://www.freedesktop.org/software/systemd/man/sd_listen_fds.html>`_
 
     """
+    # $LISTEN_PID, $LISTEN_FDS, $LISTEN_FDNAMES: Set by the service manager
+    # for supervised processes that use socket-based activation.
     fds = int(os.environ.get('LISTEN_FDS', 0))
     listen_pid = int(os.environ.get('LISTEN_PID', 0))
 
@@ -46,6 +49,7 @@ def listen_fds(unset_environment=True):
     return fds
 
 
+# done
 def sd_notify(state, logger, unset_environment=False):
     """Send a notification to systemd. state is a string; see
     the man page of sd_notify (http://www.freedesktop.org/software/systemd/man/sd_notify.html)
@@ -58,12 +62,12 @@ def sd_notify(state, logger, unset_environment=False):
     child processes.
     """
 
-
     addr = os.environ.get('NOTIFY_SOCKET')
     if addr is None:
         # not run in a service, just a noop
         return
     try:
+        # todo: 每次请求都创建sock? 搞个单体不行么?
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM | socket.SOCK_CLOEXEC)
         if addr[0] == '@':
             addr = '\0' + addr[1:]
