@@ -127,9 +127,10 @@ def get_username(uid):
     return pwd.getpwuid(uid).pw_name
 
 
+# done
 def set_owner_process(uid, gid, initgroups=False):
-    """ set user and group of workers processes """
-
+    """ set user and group of workers processes
+    """
     if gid:
         if uid:
             try:

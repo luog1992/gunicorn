@@ -13,6 +13,7 @@ import threading
 COMPILED_EXT_RE = re.compile(r'py[co]$')
 
 
+# done
 class Reloader(threading.Thread):
     def __init__(self, extra_files=None, interval=1, callback=None):
         super().__init__()
@@ -54,6 +55,7 @@ class Reloader(threading.Thread):
                     if self._callback:
                         self._callback(filename)
             time.sleep(self._interval)
+
 
 has_inotify = False
 if sys.platform.startswith('linux'):

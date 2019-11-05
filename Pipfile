@@ -15,6 +15,9 @@ Sphinx = "*"
 e1839a8 = {editable = true,path = "."}
 gunicorn = {editable = true,path = "."}
 ipython = "*"
+gevent = "*"
+eventlet = "*"
+colorama = "*"
 
 [requires]
 python_version = "3.7"

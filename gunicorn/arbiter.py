@@ -17,6 +17,8 @@ from gunicorn import sock, systemd, util
 
 from gunicorn import __version__, SERVER_SOFTWARE
 
+from colorama import Fore
+
 
 class Arbiter(object):
     """
@@ -89,12 +91,12 @@ class Arbiter(object):
         self.cfg.nworkers_changed(self, value, old_value)
     num_workers = property(_get_num_workers, _set_num_workers)
 
-    # todo: 看 log 代码
     def setup(self, app):
         self.app = app
         self.cfg = app.cfg
 
         if self.log is None:
+            # todo: log源码
             self.log = self.cfg.logger_class(app.cfg)
 
         # reopen files
@@ -106,7 +108,7 @@ class Arbiter(object):
         self.num_workers = self.cfg.workers
         self.timeout = self.cfg.timeout
         self.proc_name = self.cfg.proc_name
-        self.log.debug('...proc_name: %s' % self.proc_name)
+        self.log.debug('...proc_name: %s' % self.proc_name)  # e.g.: app:app
 
         self.log.debug('Current configuration:\n{0}'.format(
             '\n'.join(
@@ -180,6 +182,7 @@ class Arbiter(object):
         Initialize master signal handling. Most of the signals
         are queued. Child signals only wake up the master.
         """
+        self._log('init_signals')
         # close old PIPE
         for p in self.PIPE:
             os.close(p)
@@ -195,16 +198,20 @@ class Arbiter(object):
         # initialize all signals
         for s in self.SIGNALS:
             signal.signal(s, self.signal)
+
+        # 子进程终止时发送给父进程的信号
         signal.signal(signal.SIGCHLD, self.handle_chld)
 
     def signal(self, sig, frame):
-        if len(self.SIG_QUEUE) < 5:
+        self._log('signal sig=%s' % sig)
+        if len(self.SIG_QUEUE) < 5:  # todo: 为什么是5?
             self.SIG_QUEUE.append(sig)
             self.wakeup()
 
     def run(self):
         """Main master loop.
         """
+        self._log('run')
         self.start()
         util._setproctitle("master [%s]" % self.proc_name)
 
@@ -251,7 +258,11 @@ class Arbiter(object):
 
     def handle_chld(self, sig, frame):
         """SIGCHLD handling
+
+        任何一个子进程(init除外)在exit后并非马上就消失，而是留下一个称外僵尸进程的
+        数据结构, 等待父进程处理。另外子进程退出的时候会向其父进程发送一个SIGCHLD信号
         """
+        self._log('handle_chld')
         self.reap_workers()
         self.wakeup()
 
@@ -262,20 +273,24 @@ class Arbiter(object):
         - Start the new worker processes with a new configuration
         - Gracefully shutdown the old worker processes
         """
+        self._log('handle_hup')
         self.log.info("Hang up: %s", self.master_name)
         self.reload()
 
     def handle_term(self):
         "SIGTERM handling"
+        self._log('handle_term')
         raise StopIteration
 
     def handle_int(self):
         "SIGINT handling"
+        self._log('handle_int')
         self.stop(False)
         raise StopIteration
 
     def handle_quit(self):
         "SIGQUIT handling"
+        self._log('handle_quit')
         self.stop(False)
         raise StopIteration
 
@@ -284,6 +299,7 @@ class Arbiter(object):
         SIGTTIN handling.
         Increases the number of workers by one.
         """
+        self._log('handle_ttin')
         self.num_workers += 1
         self.manage_workers()
 
@@ -292,6 +308,7 @@ class Arbiter(object):
         SIGTTOU handling.
         Decreases the number of workers by one.
         """
+        self._log('handle_ttou')
         if self.num_workers <= 1:
             return
         self.num_workers -= 1
@@ -302,6 +319,7 @@ class Arbiter(object):
         SIGUSR1 handling.
         Kill all workers by sending them a SIGUSR1
         """
+        self._log('handle_usr1')
         self.log.reopen_files()
         self.kill_workers(signal.SIGUSR1)
 
@@ -312,10 +330,12 @@ class Arbiter(object):
         master without affecting old workers. Use this to do live
         deployment with the ability to backout a change.
         """
+        self._log('handle_usr2')
         self.reexec()
 
     def handle_winch(self):
         """SIGWINCH handling"""
+        self._log('handle_winch')
         if self.cfg.daemon:
             self.log.info("graceful stop of workers")
             self.num_workers = 0
@@ -324,6 +344,8 @@ class Arbiter(object):
             self.log.debug("SIGWINCH ignored. Not daemonized")
 
     def maybe_promote_master(self):
+        # 周期性执行
+        # self._log('maybe_promote_master')
         if self.master_pid == 0:
             return
 
@@ -344,6 +366,7 @@ class Arbiter(object):
         """\
         Wake up the arbiter by writing to the PIPE
         """
+        self._log('wakeup')
         try:
             os.write(self.PIPE[1], b'.')
         except IOError as e:
@@ -354,6 +377,7 @@ class Arbiter(object):
 
     def halt(self, reason=None, exit_status=0):
         """ halt arbiter """
+        self._log('halt')
         self.stop()
         self.log.info("Shutting down: %s", self.master_name)
         if reason is not None:
@@ -368,6 +392,7 @@ class Arbiter(object):
         Sleep until PIPE is readable or we timeout.
         A readable PIPE means a signal occurred.
         """
+        # self._log('sleep')
         try:
             ready = select.select([self.PIPE[0]], [], [], 1.0)
             if not ready[0]:
@@ -389,6 +414,7 @@ class Arbiter(object):
         :attr graceful: boolean, If True (the default) workers will be
         killed gracefully  (ie. trying to wait for the current connection)
         """
+        self._log('stop')
         unlink = (
             self.reexec_pid == self.master_pid == 0
             and not self.systemd
@@ -413,6 +439,7 @@ class Arbiter(object):
         """\
         Relaunch the master and workers.
         """
+        self._log('reexec')
         if self.reexec_pid != 0:
             self.log.warning("USR2 signal ignored. Child exists.")
             return
@@ -444,6 +471,7 @@ class Arbiter(object):
         os.execvpe(self.START_CTX[0], self.START_CTX['args'], environ)
 
     def reload(self):
+        self._log('reload')
         old_address = self.cfg.address
 
         # reset old environment
@@ -502,6 +530,7 @@ class Arbiter(object):
         """\
         Kill unused/idle workers
         """
+        # self._log('murder_workers')
         if not self.timeout:
             return
         workers = list(self.WORKERS.items())
@@ -523,6 +552,7 @@ class Arbiter(object):
         """\
         Reap workers to avoid zombie processes
         """
+        self._log('reap_workers')
         try:
             while True:
                 wpid, status = os.waitpid(-1, os.WNOHANG)
@@ -556,6 +586,7 @@ class Arbiter(object):
         Maintain the number of workers by spawning or killing
         as required.
         """
+        # self._log('manage_workers')
         if len(self.WORKERS) < self.num_workers:
             self.spawn_workers()
 
@@ -574,17 +605,20 @@ class Arbiter(object):
                                   "mtype": "gauge"})
 
     def spawn_worker(self):
+        self._log('spawn_worker')
         self.worker_age += 1
         worker = self.worker_class(self.worker_age, self.pid, self.LISTENERS,
                                    self.app, self.timeout / 2.0,
                                    self.cfg, self.log)
-        self.cfg.pre_fork(self, worker)
+
+        self.cfg.pre_fork(self, worker)  # hook before fork
         pid = os.fork()
-        if pid != 0:
+        if pid != 0:    # 父进程中
             worker.pid = pid
             self.WORKERS[pid] = worker
             return pid
 
+        # 在子进程中
         # Do not inherit the temporary files of other workers
         for sibling in self.WORKERS.values():
             sibling.tmp.close()
@@ -595,8 +629,13 @@ class Arbiter(object):
             util._setproctitle("worker [%s]" % self.proc_name)
             self.log.info("Booting worker with pid: %s", worker.pid)
             self.cfg.post_fork(self, worker)
+            self._log('before worker init_process')
+            # todo: 现在是在子进程中, 此处会hang住
             worker.init_process()
+            # 直到ctrl-c退出, 才会执行到这里
+            self._log('after  worker init_process')
             sys.exit(0)
+            self._log('after  sys.exit(0)')
         except SystemExit:
             raise
         except AppImportError as e:
@@ -626,7 +665,7 @@ class Arbiter(object):
         This is where a worker process leaves the main loop
         of the master process.
         """
-
+        self._log('spawn_workers')
         for _ in range(self.num_workers - len(self.WORKERS)):
             self.spawn_worker()
             time.sleep(0.1 * random.random())
@@ -636,6 +675,7 @@ class Arbiter(object):
         Kill all workers with the signal `sig`
         :attr sig: `signal.SIG*` value
         """
+        self._log('kill_workers: %s' % sig)
         worker_pids = list(self.WORKERS.keys())
         for pid in worker_pids:
             self.kill_worker(pid, sig)
@@ -647,6 +687,7 @@ class Arbiter(object):
         :attr pid: int, worker pid
         :attr sig: `signal.SIG*` value
          """
+        self._log('kill_worker %s %s' % (pid, sig))
         try:
             os.kill(pid, sig)
         except OSError as e:
@@ -659,3 +700,6 @@ class Arbiter(object):
                 except (KeyError, OSError):
                     return
             raise
+
+    def _log(self, msg):
+        self.log.info('%s %s' % (Fore.RESET, msg))

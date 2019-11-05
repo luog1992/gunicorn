@@ -25,6 +25,8 @@ from gunicorn.http.wsgi import Response, default_environ
 from gunicorn.reloader import reloader_engines
 from gunicorn.workers.workertmp import WorkerTmp
 
+from colorama import Fore
+
 
 class Worker(object):
 
@@ -71,6 +73,8 @@ class Worker(object):
         once every ``self.timeout`` seconds. If you fail in accomplishing
         this task, the master process will murder your workers.
         """
+        # 周期性执行
+        # self._log('notify')
         self.tmp.notify()
 
     def run(self):
@@ -79,6 +83,7 @@ class Worker(object):
         this method in a subclass to provide the intended behaviour
         for your particular evil schemes.
         """
+        self._log('run')
         raise NotImplementedError()
 
     def init_process(self):
@@ -87,12 +92,13 @@ class Worker(object):
         in the function should be to call this method with
         super().init_process() so that the ``run()`` loop is initiated.
         """
-
+        self._log('init_process')
         # set environment' variables
         if self.cfg.env:
             for k, v in self.cfg.env.items():
                 os.environ[k] = v
 
+        # 设置进程所属user group
         util.set_owner_process(self.cfg.uid, self.cfg.gid,
                                initgroups=self.cfg.initgroups)
 
@@ -128,6 +134,7 @@ class Worker(object):
             reloader_cls = reloader_engines[self.cfg.reload_engine]
             self.reloader = reloader_cls(extra_files=self.cfg.reload_extra_files,
                                          callback=changed)
+            # reloader 是一个线程
             self.reloader.start()
 
         self.load_wsgi()
@@ -137,7 +144,10 @@ class Worker(object):
         self.booted = True
         self.run()
 
+    # done
+    # todo: reloader 部分
     def load_wsgi(self):
+        self._log('load_wsgi')
         try:
             self.wsgi = self.app.wsgi()
         except SyntaxError as e:
@@ -160,10 +170,13 @@ class Worker(object):
             finally:
                 del exc_tb
 
+    # done
     def init_signals(self):
+        self._log('init_signals')
         # reset signaling
         for s in self.SIGNALS:
-            signal.signal(s, signal.SIG_DFL)
+            signal.signal(s, signal.SIG_DFL)    # SIG_DFL: default handler
+
         # init new signaling
         signal.signal(signal.SIGQUIT, self.handle_quit)
         signal.signal(signal.SIGTERM, self.handle_exit)
@@ -172,8 +185,10 @@ class Worker(object):
         signal.signal(signal.SIGUSR1, self.handle_usr1)
         signal.signal(signal.SIGABRT, self.handle_abort)
 
+        # todo: 测试关闭gunicorn时候, worker如何处理处理中的request
         # Don't let SIGTERM and SIGUSR1 disturb active requests
         # by interrupting system calls
+        # todo: 看不懂 siginterrupt 函数
         signal.siginterrupt(signal.SIGTERM, False)
         signal.siginterrupt(signal.SIGUSR1, False)
 
@@ -181,12 +196,15 @@ class Worker(object):
             signal.set_wakeup_fd(self.PIPE[1])
 
     def handle_usr1(self, sig, frame):
+        self._log('handle_usr1: %s' % sig)
         self.log.reopen_files()
 
     def handle_exit(self, sig, frame):
+        self._log('handle_exit: %s' % sig)
         self.alive = False
 
     def handle_quit(self, sig, frame):
+        self._log('handle_quit: %s' % sig)
         self.alive = False
         # worker_int callback
         self.cfg.worker_int(self)
@@ -194,11 +212,13 @@ class Worker(object):
         sys.exit(0)
 
     def handle_abort(self, sig, frame):
+        self._log('handle_abort: %s' % sig)
         self.alive = False
         self.cfg.worker_abort(self)
         sys.exit(1)
 
     def handle_error(self, req, client, addr, exc):
+        self._log('handle_error')
         request_start = datetime.now()
         addr = addr or ('', -1)  # unix socket case
         if isinstance(exc, (InvalidRequestLine, InvalidRequestMethod,
@@ -264,4 +284,15 @@ class Worker(object):
 
     def handle_winch(self, sig, fname):
         # Ignore SIGWINCH in worker. Fixes a crash on OpenBSD.
+        self._log('handle_winch: %s' % sig)
         self.log.debug("worker: SIGWINCH ignored.")
+
+    def _log(self, msg):
+        prefixs = {
+            0: Fore.RED,
+            1: Fore.GREEN,
+            2: Fore.BLUE,
+            3: Fore.YELLOW,
+            4: Fore.CYAN,
+        }
+        self.log.info('%s %s %s' % (prefixs[self.pid % 5], self.pid, msg))
