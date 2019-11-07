@@ -11,6 +11,9 @@ import threading
 
 from flask import Flask
 from flask_redis import FlaskRedis
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import Column
+from sqlalchemy import func, text as _text
 
 # 全局变量, 用于测试并发请求会不会同时修改一个变量
 LIST = []
@@ -38,9 +41,27 @@ class TestDB(object):
 
 
 flask_app = Flask(__name__)
+flask_app.config['REDIS_URL'] = "redis://localhost:6379/0"
+flask_app.config['SQLALCHEMY_DATABASE_URI'] = \
+    "mysql+pymysql://root:root@127.0.0.1:3306/idict"
 
 test_db = TestDB()
 redis = FlaskRedis(flask_app)
+sqla_db = SQLAlchemy(flask_app, session_options={'autoflush': False})
+
+
+class TestModel(sqla_db.Model):
+
+    __tablename__ = 'test'
+
+    id_ = Column('id', sqla_db.BigInteger, autoincrement=True, primary_key=True)
+    user_id = Column('user_id', sqla_db.BigInteger, nullable=False, server_default='0')
+    name = Column('name', sqla_db.VARCHAR(128), nullable=False, server_default='')
+    _type = Column('type', sqla_db.SmallInteger, nullable=False, server_default='0')
+    create_time = Column('create_time', sqla_db.TIMESTAMP, nullable=False, server_default=func.now())
+    update_time = Column(
+        'update_time', sqla_db.TIMESTAMP, nullable=False,
+        server_default=_text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'))
 
 
 @flask_app.route('/test-db/<int:delta>')
@@ -54,12 +75,26 @@ def test_test_db(delta):
 
 @flask_app.route('/redis/<int:delta>')
 def test_redis(delta):
-    rd_key = 'test:multi:req:list'
+    rd_key = 'gunicorn:test:multi:req:list'
     redis.lpush(rd_key, delta)
     time.sleep(delta)
     msg = "PID=%s TID=%s LIST=%s" % (
         os.getpid(), threading.current_thread().ident,
         redis.lrange(rd_key, 0, -1)
+    )
+    return msg
+
+
+@flask_app.route('/sqla/<int:delta>')
+def test_sqla(delta):
+    obj = TestModel(user_id=delta, name=str(delta), _type=delta)
+    sqla_db.session.add(obj)
+    time.sleep(delta)
+    sqla_db.session.commit()
+
+    msg = "PID=%s TID=%s COUNT=%s" % (
+        os.getpid(), threading.current_thread().ident,
+        TestModel.query.count()
     )
     return msg
 
