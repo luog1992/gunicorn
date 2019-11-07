@@ -9,6 +9,7 @@ import select
 import signal
 import sys
 import time
+import threading
 import traceback
 
 from gunicorn.errors import HaltServer, AppImportError
@@ -612,7 +613,11 @@ class Arbiter(object):
                                    self.cfg, self.log)
 
         self.cfg.pre_fork(self, worker)  # hook before fork
+
+        self._log('before fork')
         pid = os.fork()
+        self._log('after fork')
+
         if pid != 0:    # 父进程中
             worker.pid = pid
             self.WORKERS[pid] = worker
@@ -629,14 +634,19 @@ class Arbiter(object):
             util._setproctitle("worker [%s]" % self.proc_name)
             self.log.info("Booting worker with pid: %s", worker.pid)
             self.cfg.post_fork(self, worker)
+
             self._log('before worker init_process')
+
             # todo: 现在是在子进程中, 此处会hang住
             worker.init_process()
-            # 直到ctrl-c退出, 才会执行到这里
-            self._log('after  worker init_process')
+
+            # todo: 直到Ctrl-C worker退出, 才会执行到这里
+            self._log('after worker init_process')
+
             sys.exit(0)
-            self._log('after  sys.exit(0)')
         except SystemExit:
+            # woker.init_process中因为修改代码而reload时, 将会运行到这儿
+            self._log('spawn_worker SystemExit')
             raise
         except AppImportError as e:
             self.log.debug("Exception while loading the application",
@@ -645,11 +655,15 @@ class Arbiter(object):
             sys.stderr.flush()
             sys.exit(self.APP_LOAD_ERROR)
         except:
+            # woker.init_process中因为修改代码而reload时, 不会运行到这儿
+            self._log('spawn_worker except')
             self.log.exception("Exception in worker process")
             if not worker.booted:
                 sys.exit(self.WORKER_BOOT_ERROR)
             sys.exit(-1)
         finally:
+            # woker.init_process中因为修改代码而reload时, 将会运行到这儿
+            self._log('spawn_worker finally')
             self.log.info("Worker exiting (pid: %s)", worker.pid)
             try:
                 worker.tmp.close()
@@ -658,6 +672,7 @@ class Arbiter(object):
                 self.log.warning("Exception during worker exit:\n%s",
                                   traceback.format_exc())
 
+    # done
     def spawn_workers(self):
         """\
         Spawn new workers as needed.
@@ -702,4 +717,18 @@ class Arbiter(object):
             raise
 
     def _log(self, msg):
-        self.log.info('%s %s' % (Fore.RESET, msg))
+        colors = {
+            0: Fore.RED,
+            1: Fore.GREEN,
+            2: Fore.BLUE,
+            3: Fore.YELLOW,
+            4: Fore.CYAN,
+        }
+        pid = getattr(self, 'pid', None)
+        the_pid = os.getpid()
+        if pid is None or pid == the_pid:
+            color = Fore.RESET
+        else:
+            color = colors[the_pid % 5]
+        self.log.info('%s [%s]{%s} %s' % (
+            color, the_pid, threading.current_thread().ident, msg))

@@ -8,6 +8,8 @@ import os
 import signal
 import sys
 import time
+import logging
+import threading
 import traceback
 from datetime import datetime
 from random import randint
@@ -63,6 +65,10 @@ class Worker(object):
         self.alive = True
         self.log = log
         self.tmp = WorkerTmp(cfg)
+
+        logger = logging.getLogger(__name__)
+        logger.addHandler(logging.StreamHandler(sys.stdout))
+        self.logger = logger
 
     def __str__(self):
         return "<Worker %s>" % self.pid
@@ -129,6 +135,8 @@ class Worker(object):
                 self.alive = False
                 self.cfg.worker_int(self)
                 time.sleep(0.1)
+                # sys.exit() 相当于 raise SystemExit, 当worker进程收到
+                # SystemExit 后会退出, 然后master会重新启动一个worker
                 sys.exit(0)
 
             reloader_cls = reloader_engines[self.cfg.reload_engine]
@@ -288,11 +296,13 @@ class Worker(object):
         self.log.debug("worker: SIGWINCH ignored.")
 
     def _log(self, msg):
-        prefixs = {
+        colors = {
             0: Fore.RED,
             1: Fore.GREEN,
             2: Fore.BLUE,
             3: Fore.YELLOW,
             4: Fore.CYAN,
         }
-        self.log.info('%s %s %s' % (prefixs[self.pid % 5], self.pid, msg))
+        self.log.info('%s [%s]{%s} %s' % (
+            colors[self.pid % 5], os.getpid(),
+            threading.current_thread().ident, msg))

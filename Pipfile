@@ -4,20 +4,24 @@ url = "https://pypi.douban.com/simple"
 verify_ssl = true
 
 [dev-packages]
-
-[packages]
 aiohttp = "*"
-coverage = "<4.4,>=4.0"
 pytest = "*"
 pytest-cov = "==2.5.1"
-sphinx-rtd-theme = "*"
+coverage = "<4.4,>=4.0"
 Sphinx = "*"
+sphinx-rtd-theme = "*"
+
+[packages]
 e1839a8 = {editable = true,path = "."}
 gunicorn = {editable = true,path = "."}
 ipython = "*"
 gevent = "*"
 eventlet = "*"
 colorama = "*"
+flask="*"
+flask-redis = "*"
+flask-sqlalchemy = "*"
+pymysql = "*"
 
 [requires]
 python_version = "3.7"
