@@ -64,7 +64,6 @@ class Arbiter(object):
         self.systemd = False
         self.worker_age = 0
         self.reexec_pid = 0
-        # todo: master_pid 会在 self.reexec self.start 中被赋值
         self.master_pid = 0
         self.master_name = "Master"
 
@@ -75,7 +74,7 @@ class Arbiter(object):
 
         # init start context
         self.START_CTX = {
-            # ['python3.7', 'gunicorn', '-w', '1', 'app.wsgi:app']
+            # ['python3.7', 'gunicorn', '-w', '1', 'app:app']
             "args": args,
             "cwd": cwd,
             0: sys.executable       # python3.7
@@ -92,6 +91,7 @@ class Arbiter(object):
         self.cfg.nworkers_changed(self, value, old_value)
     num_workers = property(_get_num_workers, _set_num_workers)
 
+    # done
     def setup(self, app):
         self.app = app
         self.cfg = app.cfg
@@ -124,6 +124,7 @@ class Arbiter(object):
             for k, v in self.cfg.env.items():
                 os.environ[k] = v
 
+        # 如果preload, 则所有worker会共享同一个app对象
         if self.cfg.preload_app:
             self.app.wsgi()
 
@@ -146,8 +147,8 @@ class Arbiter(object):
                 pidname += ".2"
             self.pidfile = Pidfile(pidname)
             self.pidfile.create(self.pid)
-        self.cfg.on_starting(self)
 
+        self.cfg.on_starting(self)
         self.init_signals()
 
         if not self.LISTENERS:
@@ -178,6 +179,7 @@ class Arbiter(object):
 
         self.cfg.when_ready(self)
 
+    # done
     def init_signals(self):
         """\
         Initialize master signal handling. Most of the signals
@@ -189,6 +191,8 @@ class Arbiter(object):
             os.close(p)
 
         # initialize the pipe
+        # 当收到信号后, 会在 wakeup 中向 PIPE 中写入数据
+        # 在 sleep 中会通过 select 监听 PIPE 中是否有数据
         self.PIPE = pair = os.pipe()
         for p in pair:
             util.set_non_blocking(p)
@@ -203,6 +207,7 @@ class Arbiter(object):
         # 子进程终止时发送给父进程的信号
         signal.signal(signal.SIGCHLD, self.handle_chld)
 
+    # done: 若进程收到信号, 此方法会首先被调用. 如Ctrl-C时候, 会传入sig=2(SIGINT)
     def signal(self, sig, frame):
         self._log('signal sig=%s' % sig)
         if len(self.SIG_QUEUE) < 5:  # todo: 为什么是5?
@@ -222,6 +227,7 @@ class Arbiter(object):
             while True:
                 self.maybe_promote_master()
 
+                # 周期性检测信号
                 sig = self.SIG_QUEUE.pop(0) if self.SIG_QUEUE else None
                 if sig is None:
                     self.sleep()
@@ -345,7 +351,6 @@ class Arbiter(object):
             self.log.debug("SIGWINCH ignored. Not daemonized")
 
     def maybe_promote_master(self):
-        # 周期性执行
         # self._log('maybe_promote_master')
         if self.master_pid == 0:
             return
@@ -363,6 +368,7 @@ class Arbiter(object):
             # reset proctitle
             util._setproctitle("master [%s]" % self.proc_name)
 
+    # done: 会向 PIPE 中写入数据
     def wakeup(self):
         """\
         Wake up the arbiter by writing to the PIPE
@@ -388,6 +394,7 @@ class Arbiter(object):
         self.cfg.on_exit(self)
         sys.exit(exit_status)
 
+    # done: Sleep until PIPE is readable or we timeout.
     def sleep(self):
         """\
         Sleep until PIPE is readable or we timeout.
@@ -396,8 +403,10 @@ class Arbiter(object):
         # self._log('sleep')
         try:
             ready = select.select([self.PIPE[0]], [], [], 1.0)
+            # 如果ready, ready[0] == [self.PIPE[0]], 否则 == []
             if not ready[0]:
                 return
+            # PIPE 设置了非阻塞, 如果没有数据时候, 会抛出 BlockingIOError
             while os.read(self.PIPE[0], 1):
                 pass
         except (select.error, OSError) as e:
@@ -405,6 +414,8 @@ class Arbiter(object):
             error_number = getattr(e, 'errno', e.args[0])
             if error_number not in [errno.EAGAIN, errno.EINTR]:
                 raise
+        # todo: 这儿为什么要处理 KeyboardInterrupt?
+        #  PIPE 是非阻塞的, 上面的 while 循环因为无限快
         except KeyboardInterrupt:
             sys.exit()
 
@@ -527,13 +538,15 @@ class Arbiter(object):
         # manage workers
         self.manage_workers()
 
+    # Kill unused/idle workers
     def murder_workers(self):
         """\
         Kill unused/idle workers
         """
-        # self._log('murder_workers')
         if not self.timeout:
             return
+
+        self._log('murder_workers')
         workers = list(self.WORKERS.items())
         for (pid, worker) in workers:
             try:
@@ -582,6 +595,7 @@ class Arbiter(object):
             if e.errno != errno.ECHILD:
                 raise
 
+    # done: spawn/kill workers
     def manage_workers(self):
         """\
         Maintain the number of workers by spawning or killing
@@ -600,11 +614,16 @@ class Arbiter(object):
         active_worker_count = len(workers)
         if self._last_logged_active_worker_count != active_worker_count:
             self._last_logged_active_worker_count = active_worker_count
-            self.log.debug("{0} workers".format(active_worker_count),
-                           extra={"metric": "gunicorn.workers",
-                                  "value": active_worker_count,
-                                  "mtype": "gauge"})
+            self.log.debug(
+                "{0} workers".format(active_worker_count),
+                extra={
+                    "metric": "gunicorn.workers",
+                    "value": active_worker_count,
+                    "mtype": "gauge"
+                }
+            )
 
+    # done
     def spawn_worker(self):
         self._log('spawn_worker')
         self.worker_age += 1
@@ -614,9 +633,9 @@ class Arbiter(object):
 
         self.cfg.pre_fork(self, worker)  # hook before fork
 
-        self._log('before fork')
+        self._log('spawn_worker before fork')
         pid = os.fork()
-        self._log('after fork')
+        self._log('spawn_worker after fork')
 
         if pid != 0:    # 父进程中
             worker.pid = pid
@@ -635,13 +654,13 @@ class Arbiter(object):
             self.log.info("Booting worker with pid: %s", worker.pid)
             self.cfg.post_fork(self, worker)
 
-            self._log('before worker init_process')
+            self._log('spawn_worker before worker init_process')
 
             # todo: 现在是在子进程中, 此处会hang住
             worker.init_process()
 
             # todo: 直到Ctrl-C worker退出, 才会执行到这里
-            self._log('after worker init_process')
+            self._log('spawn_worker after worker init_process')
 
             sys.exit(0)
         except SystemExit:
@@ -685,6 +704,7 @@ class Arbiter(object):
             self.spawn_worker()
             time.sleep(0.1 * random.random())
 
+    # done
     def kill_workers(self, sig):
         """\
         Kill all workers with the signal `sig`
@@ -695,6 +715,7 @@ class Arbiter(object):
         for pid in worker_pids:
             self.kill_worker(pid, sig)
 
+    # done
     def kill_worker(self, pid, sig):
         """\
         Kill a worker
@@ -706,7 +727,7 @@ class Arbiter(object):
         try:
             os.kill(pid, sig)
         except OSError as e:
-            if e.errno == errno.ESRCH:
+            if e.errno == errno.ESRCH:  # no such process
                 try:
                     worker = self.WORKERS.pop(pid)
                     worker.tmp.close()
@@ -724,6 +745,7 @@ class Arbiter(object):
             3: Fore.YELLOW,
             4: Fore.CYAN,
         }
+        # master使用RESET颜色, worker使用其他颜色
         pid = getattr(self, 'pid', None)
         the_pid = os.getpid()
         if pid is None or pid == the_pid:
@@ -731,4 +753,5 @@ class Arbiter(object):
         else:
             color = colors[the_pid % 5]
         self.log.info('%s [%s]{%s} %s' % (
-            color, the_pid, threading.current_thread().ident, msg))
+            color, the_pid, threading.current_thread().ident, msg)
+        )

@@ -305,4 +305,5 @@ class Worker(object):
         }
         self.log.info('%s [%s]{%s} %s' % (
             colors[self.pid % 5], os.getpid(),
-            threading.current_thread().ident, msg))
+            threading.current_thread().ident, msg)
+        )

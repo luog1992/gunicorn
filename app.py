@@ -44,6 +44,7 @@ flask_app = Flask(__name__)
 flask_app.config['REDIS_URL'] = "redis://localhost:6379/0"
 flask_app.config['SQLALCHEMY_DATABASE_URI'] = \
     "mysql+pymysql://root:root@127.0.0.1:3306/idict"
+flask_app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
 
 test_db = TestDB()
 redis = FlaskRedis(flask_app)
