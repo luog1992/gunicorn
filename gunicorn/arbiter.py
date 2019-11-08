@@ -257,9 +257,7 @@ class Arbiter(object):
                 handler()
                 # todo: 为啥此处要 wakeup?
                 self.wakeup()
-        except StopIteration:
-            self.halt()
-        except KeyboardInterrupt:
+        except (StopIteration, KeyboardInterrupt):
             self.halt()
         except HaltServer as inst:
             self.halt(reason=inst.reason, exit_status=inst.exit_status)
