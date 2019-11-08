@@ -7,11 +7,10 @@ Gunicorn 源码阅读
 
 1. 环境搭建
 
-```
-# 将 .venv 文件夹安装在当前目录
-$ export PIPENV_VENV_IN_PROJECT=$PWD
-# 安装依赖包
-$ pipenv install
-# 激活环境
-$ pipenv shell
-```
+::
+    # 将 .venv 文件夹安装在当前目录
+    $ export PIPENV_VENV_IN_PROJECT=$PWD
+    # 安装依赖包
+    $ pipenv install
+    # 激活环境
+    $ pipenv shell
