@@ -2,6 +2,13 @@
 #
 # This file is part of gunicorn released under the MIT license.
 # See the NOTICE for more information.
+
+"""
+TODO:
+
+1. 如何简单明了通俗的理解 sleep 和 wakeup 的作用
+"""
+
 import errno
 import os
 import random
@@ -193,6 +200,7 @@ class Arbiter(object):
         # initialize the pipe
         # 当收到信号后, 会在 wakeup 中向 PIPE 中写入数据
         # 在 sleep 中会通过 select 监听 PIPE 中是否有数据
+        # todo: 那么问题是? 为啥要搞个PIPE?
         self.PIPE = pair = os.pipe()
         for p in pair:
             util.set_non_blocking(p)
@@ -210,7 +218,8 @@ class Arbiter(object):
     # done: 若进程收到信号, 此方法会首先被调用. 如Ctrl-C时候, 会传入sig=2(SIGINT)
     def signal(self, sig, frame):
         self._log('signal sig=%s' % sig)
-        if len(self.SIG_QUEUE) < 5:  # todo: 为什么是5?
+        if len(self.SIG_QUEUE) < 5:
+            # todo: 为什么是5? 更多的信号忽略? 什么时候会产生很多的信号?
             self.SIG_QUEUE.append(sig)
             self.wakeup()
 
@@ -246,6 +255,7 @@ class Arbiter(object):
                     continue
                 self.log.info("Handling signal: %s", signame)
                 handler()
+                # todo: 为啥此处要 wakeup?
                 self.wakeup()
         except StopIteration:
             self.halt()
@@ -368,7 +378,7 @@ class Arbiter(object):
             # reset proctitle
             util._setproctitle("master [%s]" % self.proc_name)
 
-    # done: 会向 PIPE 中写入数据
+    # done: 向 PIPE 中写入数据
     def wakeup(self):
         """\
         Wake up the arbiter by writing to the PIPE
@@ -406,14 +416,20 @@ class Arbiter(object):
             # 如果ready, ready[0] == [self.PIPE[0]], 否则 == []
             if not ready[0]:
                 return
-            # PIPE 设置了非阻塞, 如果没有数据时候, 会抛出 BlockingIOError
             while os.read(self.PIPE[0], 1):
                 pass
         except (select.error, OSError) as e:
             # TODO: select.error is a subclass of OSError since Python 3.3.
+            self._log('sleep exception %s' % e)
+
+            # 当Ctrl-C时候, errno_number = errno.EWOULDBLOCK
+            # 而 errno.EWOULDBLOCK == errno.EAGAIN
+            # https://stackoverflow.com/questions/49049430/
+            # difference-between-eagain-or-ewouldblock
             error_number = getattr(e, 'errno', e.args[0])
             if error_number not in [errno.EAGAIN, errno.EINTR]:
                 raise
+
         # todo: 这儿为什么要处理 KeyboardInterrupt?
         #  PIPE 是非阻塞的, 上面的 while 循环因为无限快
         except KeyboardInterrupt:
@@ -546,7 +562,6 @@ class Arbiter(object):
         if not self.timeout:
             return
 
-        self._log('murder_workers')
         workers = list(self.WORKERS.items())
         for (pid, worker) in workers:
             try:
