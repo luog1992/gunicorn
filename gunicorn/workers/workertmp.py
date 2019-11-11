@@ -13,9 +13,13 @@ PLATFORM = platform.system()
 IS_CYGWIN = PLATFORM.startswith('CYGWIN')
 
 
+# done
 class WorkerTmp(object):
 
     def __init__(self, cfg):
+        # umask() sets the calling process's file mode creation mask (umask) to
+        # mask & 0777 (i.e., only the file permission bits of mask are used),
+        # and returns the previous value of the mask.
         old_umask = os.umask(cfg.umask)
         fdir = cfg.worker_tmp_dir
         if fdir and not os.path.isdir(fdir):
@@ -42,6 +46,9 @@ class WorkerTmp(object):
         self.spinner = 0
 
     def notify(self):
+        # todo: 为什么要周期性的 chmod ?
+        # ``0`` stat.S_IFPORT: Event port??
+        # ``1`` stat.S_IXOTH: others have execute permission
         self.spinner = (self.spinner + 1) % 2
         os.fchmod(self._tmp.fileno(), self.spinner)
 

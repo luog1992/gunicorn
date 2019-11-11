@@ -151,6 +151,7 @@ def set_owner_process(uid, gid, initgroups=False):
         os.setuid(uid)
 
 
+# done
 def chown(path, uid, gid):
     os.chown(path, uid, gid)
 
@@ -195,6 +196,7 @@ else:
     _unlink = os.unlink
 
 
+# done
 def unlink(filename):
     try:
         _unlink(filename)

@@ -50,7 +50,9 @@ class Worker(object):
         self.app = app
         self.timeout = timeout
         self.cfg = cfg
+        # 是否已启动
         self.booted = False
+        # master.murder_workers 中会修改 aborted, 但是好像其他地方没有使用
         self.aborted = False
         self.reloader = None
 
@@ -64,6 +66,7 @@ class Worker(object):
 
         self.alive = True
         self.log = log
+        # 用于worker的health check
         self.tmp = WorkerTmp(cfg)
 
         logger = logging.getLogger(__name__)
@@ -73,6 +76,7 @@ class Worker(object):
     def __str__(self):
         return "<Worker %s>" % self.pid
 
+    # done: call ``notify`` every ``self.timeout`` 以便master认为worker还活着
     def notify(self):
         """\
         Your worker subclass must arrange to have this method called
@@ -140,8 +144,9 @@ class Worker(object):
                 sys.exit(0)
 
             reloader_cls = reloader_engines[self.cfg.reload_engine]
-            self.reloader = reloader_cls(extra_files=self.cfg.reload_extra_files,
-                                         callback=changed)
+            # reloader主要是判断(监听)是否需要reload, callback是具体的reload方法
+            self.reloader = reloader_cls(
+                extra_files=self.cfg.reload_extra_files, callback=changed)
             # reloader 是一个线程
             self.reloader.start()
 

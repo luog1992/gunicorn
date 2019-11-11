@@ -427,9 +427,6 @@ class Arbiter(object):
             error_number = getattr(e, 'errno', e.args[0])
             if error_number not in [errno.EAGAIN, errno.EINTR]:
                 raise
-
-        # todo: 这儿为什么要处理 KeyboardInterrupt?
-        #  PIPE 是非阻塞的, 上面的 while 循环因为无限快
         except KeyboardInterrupt:
             sys.exit()
 
@@ -552,7 +549,7 @@ class Arbiter(object):
         # manage workers
         self.manage_workers()
 
-    # Kill unused/idle workers
+    # done: Kill unused/idle workers
     def murder_workers(self):
         """\
         Kill unused/idle workers
@@ -677,7 +674,7 @@ class Arbiter(object):
 
             sys.exit(0)
         except SystemExit:
-            # woker.init_process中因为修改代码而reload时, 将会运行到这儿
+            # 比如: worker.init_process中因为修改代码而reload时, 将会运行到这儿
             self._log('spawn_worker SystemExit')
             raise
         except AppImportError as e:
@@ -738,7 +735,10 @@ class Arbiter(object):
          """
         self._log('kill_worker %s %s' % (pid, sig))
         try:
+            # kill worker的时候worker进程会收到相应的信号并进行处理
             os.kill(pid, sig)
+            # 此处不需要 self.cfg.worker_exit, worker正常退出后,
+            # 会在 ``spawn_worker`` 中调用 worker_exit
         except OSError as e:
             if e.errno == errno.ESRCH:  # no such process
                 try:
