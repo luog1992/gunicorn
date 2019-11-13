@@ -239,8 +239,11 @@ class Arbiter(object):
                 # 周期性检测信号
                 sig = self.SIG_QUEUE.pop(0) if self.SIG_QUEUE else None
                 if sig is None:
+                    # 处理 PIPE 中的消息(数据)
                     self.sleep()
+                    # 终止unused/idle worker
                     self.murder_workers()
+                    # 看是否需要 增/减 worker
                     self.manage_workers()
                     continue
 

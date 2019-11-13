@@ -502,6 +502,7 @@ def seed():
         random.seed('%s.%s' % (time.time(), os.getpid()))
 
 
+# done
 def check_is_writeable(path):
     try:
         f = open(path, 'a')

@@ -19,3 +19,4 @@ setuptools-*
 .idea/
 .venv/
 gunicorn.pid
+.log.*

@@ -190,6 +190,7 @@ class Logger(object):
         self.error_handlers = []
         self.access_handlers = []
         self.logfile = None
+        # 锁 Lock
         self.lock = threading.Lock()
         self.cfg = cfg
         self.setup(cfg)
@@ -200,6 +201,7 @@ class Logger(object):
         self.access_log.setLevel(logging.INFO)
 
         # set gunicorn.error handler
+        # 将 stdout/stderr 重定向到 errorlog 文件
         if self.cfg.capture_output and cfg.errorlog != "-":
             for stream in sys.stdout, sys.stderr:
                 stream.flush()
@@ -208,35 +210,39 @@ class Logger(object):
             os.dup2(self.logfile.fileno(), sys.stdout.fileno())
             os.dup2(self.logfile.fileno(), sys.stderr.fileno())
 
-        self._set_handler(self.error_log, cfg.errorlog,
-                          logging.Formatter(self.error_fmt, self.datefmt))
+        # debug info error 等日志都是发到 error_log
+        # 将 error_log 同时记录到console和日志文件, 比如可以测试直接关闭终端后
+        # 日志中记录了什么(gunicorn是如何终止的), 可以与Ctrl-C终止进程做个比较
+        self._set_handler(
+            self.error_log, cfg.errorlog,
+            logging.Formatter(self.error_fmt, self.datefmt)
+        )
+        _fh = logging.FileHandler('.log.error')
+        _fh.setFormatter(logging.Formatter(self.error_fmt, self.datefmt))
+        self.error_log.addHandler(_fh)
 
         # set gunicorn.access handler
         if cfg.accesslog is not None:
-            self._set_handler(self.access_log, cfg.accesslog,
-                fmt=logging.Formatter(self.access_fmt), stream=sys.stdout)
+            self._set_handler(
+                self.access_log, cfg.accesslog, stream=sys.stdout,
+                fmt=logging.Formatter(self.access_fmt)
+            )
 
         # set syslog handler
         if cfg.syslog:
             self._set_syslog_handler(
-                self.error_log, cfg, self.syslog_fmt, "error"
-            )
+                self.error_log, cfg, self.syslog_fmt, "error")
             if not cfg.disable_redirect_access_to_syslog:
                 self._set_syslog_handler(
-                    self.access_log, cfg, self.syslog_fmt, "access"
-                )
+                    self.access_log, cfg, self.syslog_fmt, "access")
 
+        # 如果用户自定义了日志设置, 使用之
         if cfg.logconfig_dict:
             config = CONFIG_DEFAULTS.copy()
             config.update(cfg.logconfig_dict)
             try:
                 dictConfig(config)
-            except (
-                    AttributeError,
-                    ImportError,
-                    ValueError,
-                    TypeError
-            ) as exc:
+            except (AttributeError, ImportError, ValueError, TypeError) as exc:
                 raise RuntimeError(str(exc))
         elif cfg.logconfig:
             if os.path.exists(cfg.logconfig):
@@ -384,11 +390,13 @@ class Logger(object):
                     finally:
                         handler.release()
 
+    # done
     def _get_gunicorn_handler(self, log):
         for h in log.handlers:
             if getattr(h, "_gunicorn", False):
                 return h
 
+    # done
     def _set_handler(self, log, output, fmt, stream=None):
         # remove previous gunicorn log handler
         h = self._get_gunicorn_handler(log)
@@ -413,30 +421,24 @@ class Logger(object):
             h._gunicorn = True
             log.addHandler(h)
 
+    # done
     def _set_syslog_handler(self, log, cfg, fmt, name):
         # setup format
         if not cfg.syslog_prefix:
             prefix = cfg.proc_name.replace(":", ".")
         else:
             prefix = cfg.syslog_prefix
-
         prefix = "gunicorn.%s.%s" % (prefix, name)
-
-        # set format
         fmt = logging.Formatter(r"%s: %s" % (prefix, fmt))
 
-        # syslog facility
         try:
             facility = SYSLOG_FACILITIES[cfg.syslog_facility.lower()]
         except KeyError:
             raise RuntimeError("unknown facility name")
 
-        # parse syslog address
         socktype, addr = parse_syslog_address(cfg.syslog_addr)
-
-        # finally setup the syslog handler
-        h = logging.handlers.SysLogHandler(address=addr,
-                facility=facility, socktype=socktype)
+        h = logging.handlers.SysLogHandler(
+            address=addr, facility=facility, socktype=socktype)
 
         h.setFormatter(fmt)
         h._gunicorn = True

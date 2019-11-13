@@ -146,6 +146,7 @@ class Config(object):
         else:
             return self.settings['default_proc_name'].get()
 
+    # done
     @property
     def logger_class(self):
         uri = self.settings['logger_class'].get()
@@ -156,14 +157,15 @@ class Config(object):
         # if default logger is in use, and statsd is on, automagically switch
         # to the statsd logger
         if uri == LoggerClass.default:
-            if 'statsd_host' in self.settings and self.settings['statsd_host'].value is not None:
+            if 'statsd_host' in self.settings and \
+                    self.settings['statsd_host'].value is not None:
                 uri = "gunicorn.instrument.statsd.Statsd"
 
         logger_class = util.load_class(
             uri,
             default="gunicorn.glogging.Logger",
-            section="gunicorn.loggers")
-
+            section="gunicorn.loggers"
+        )
         if hasattr(logger_class, "install"):
             logger_class.install()
         return logger_class
@@ -558,6 +560,7 @@ class ConfigFile(Setting):
         """
 
 
+# done
 class Bind(Setting):
     name = "bind"
     action = "append"
@@ -1091,6 +1094,7 @@ class WorkerTmpDir(Setting):
         """
 
 
+# done
 class User(Setting):
     name = "user"
     section = "Server Mechanics"
@@ -1107,6 +1111,7 @@ class User(Setting):
         """
 
 
+# done
 class Group(Setting):
     name = "group"
     section = "Server Mechanics"
@@ -1237,6 +1242,7 @@ class AccessLog(Setting):
         """
 
 
+# done
 class DisableRedirectAccessToSyslog(Setting):
     name = "disable_redirect_access_to_syslog"
     section = "Logging"
@@ -1312,6 +1318,7 @@ class ErrorLog(Setting):
         """
 
 
+# done
 class Loglevel(Setting):
     name = "loglevel"
     section = "Logging"
@@ -1332,6 +1339,7 @@ class Loglevel(Setting):
         """
 
 
+# done
 class CaptureOutput(Setting):
     name = "capture_output"
     section = "Logging"
@@ -1396,6 +1404,7 @@ class LogConfigDict(Setting):
     """
 
 
+# done
 class SyslogTo(Setting):
     name = "syslog_addr"
     section = "Logging"
@@ -1426,6 +1435,7 @@ class SyslogTo(Setting):
     """
 
 
+# done
 class Syslog(Setting):
     name = "syslog"
     section = "Logging"
@@ -1442,6 +1452,7 @@ class Syslog(Setting):
     """
 
 
+# done
 class SyslogPrefix(Setting):
     name = "syslog_prefix"
     section = "Logging"
@@ -1457,6 +1468,7 @@ class SyslogPrefix(Setting):
     """
 
 
+# done
 class SyslogFacility(Setting):
     name = "syslog_facility"
     section = "Logging"
