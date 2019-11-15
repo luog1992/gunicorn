@@ -302,13 +302,13 @@ class Worker(object):
 
     def _log(self, msg):
         colors = {
-            0: Fore.RED,
-            1: Fore.GREEN,
-            2: Fore.BLUE,
-            3: Fore.YELLOW,
-            4: Fore.CYAN,
+            0: (Fore.RED, '---'),
+            1: (Fore.GREEN, '+++'),
+            2: (Fore.BLUE, '***'),
+            3: (Fore.YELLOW, '==='),
+            4: (Fore.CYAN, '>>>'),
         }
-        self.log.info('%s [%s]{%s} %s' % (
-            colors[self.pid % 5], os.getpid(),
-            threading.current_thread().ident, msg)
+        color = colors[self.pid % 5]
+        self.log.info('%s %s {%s} %s' % (
+            color[0], color[1], threading.current_thread().ident, msg)
         )

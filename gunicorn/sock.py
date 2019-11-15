@@ -166,8 +166,7 @@ def create_sockets(conf, log, fds=None):
     raised.
     """
     listeners = []
-
-    # get it only once
+    # get it only once, e.g. [('127.0.0.1', 8000)]
     addr = conf.address
 
     # fd addr: [3, 4, 5,...]
@@ -206,7 +205,7 @@ def create_sockets(conf, log, fds=None):
         return listeners
 
     # no sockets is bound, first initialization of gunicorn in this env.
-    # 从bind((127.0.0.1, 8000))创建socket
+    # 从bind创建socket
     for addr in laddr:
         sock_type = _sock_type(addr)
         sock = None
@@ -235,6 +234,7 @@ def create_sockets(conf, log, fds=None):
     return listeners
 
 
+# done
 def close_sockets(listeners, unlink=True):
     for sock in listeners:
         sock_name = sock.getsockname()

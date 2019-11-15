@@ -74,19 +74,17 @@ class Arbiter(object):
         self.master_pid = 0
         self.master_name = "Master"
 
-        cwd = util.getcwd()
-
         args = sys.argv[:]
         args.insert(0, sys.executable)
 
         # init start context
         self.START_CTX = {
-            # ['python3.7', 'gunicorn', '-w', '1', 'app:app']
+            # e.g. ['python3.7', 'gunicorn', '-w', '1', 'app:app']
             "args": args,
-            "cwd": cwd,
-            0: sys.executable       # python3.7
+            "cwd": util.getcwd(),
+            0: sys.executable       # e.g. python3.7
         }
-        self.log.debug('...START_CTX: %s' % self.START_CTX)
+        self._log('START_CTX: %s' % self.START_CTX)
 
     # done
     def _get_num_workers(self):
@@ -104,10 +102,9 @@ class Arbiter(object):
         self.cfg = app.cfg
 
         if self.log is None:
-            # todo: log源码
             self.log = self.cfg.logger_class(app.cfg)
 
-        # reopen files
+        # todo: reopen files
         if 'GUNICORN_FD' in os.environ:
             self.log.reopen_files()
 
@@ -116,7 +113,7 @@ class Arbiter(object):
         self.num_workers = self.cfg.workers
         self.timeout = self.cfg.timeout
         self.proc_name = self.cfg.proc_name
-        self.log.debug('...proc_name: %s' % self.proc_name)  # e.g.: app:app
+        self._log('proc_name: %s' % self.proc_name)  # e.g.: app:app
 
         self.log.debug('Current configuration:\n{0}'.format(
             '\n'.join(
@@ -135,6 +132,7 @@ class Arbiter(object):
         if self.cfg.preload_app:
             self.app.wsgi()
 
+    # done & todo: 还需仔细研究
     def start(self):
         """Initialize the arbiter. Start listening and set pidfile if needed.
         """
@@ -142,7 +140,7 @@ class Arbiter(object):
 
         if 'GUNICORN_PID' in os.environ:
             self.master_pid = int(os.environ.get('GUNICORN_PID'))
-            # todo: 加个数字后缀?
+            # todo: 数字后缀?
             self.proc_name = self.proc_name + ".2"
             self.master_name = "Master.2"
 
@@ -158,8 +156,18 @@ class Arbiter(object):
         self.cfg.on_starting(self)
         self.init_signals()
 
+        self._create_listeners()
+
+        if hasattr(self.worker_class, "check_config"):
+            self.worker_class.check_config(self.cfg, self.log)
+
+        self.cfg.when_ready(self)
+
+    # done
+    def _create_listeners(self):
         if not self.LISTENERS:
             fds = None
+            # systemd socket activation方式
             listen_fds = systemd.listen_fds()
             if listen_fds:
                 self.systemd = True
@@ -172,6 +180,7 @@ class Arbiter(object):
                     fds.append(int(fd))
 
             # create_sockets中会关闭(旧)fds
+            # 若 fds=None, 则从cfg中设置的bind创建sock
             self.LISTENERS = sock.create_sockets(self.cfg, self.log, fds)
 
         listeners_str = ",".join([str(l) for l in self.LISTENERS])
@@ -179,12 +188,6 @@ class Arbiter(object):
         self.log.info("Listening at: %s (%s)", listeners_str, self.pid)
         self.log.info("Using worker: %s", self.cfg.worker_class_str)
         systemd.sd_notify("READY=1\nSTATUS=Gunicorn arbiter booted", self.log)
-
-        # check worker class requirements
-        if hasattr(self.worker_class, "check_config"):
-            self.worker_class.check_config(self.cfg, self.log)
-
-        self.cfg.when_ready(self)
 
     # done
     def init_signals(self):
@@ -217,7 +220,7 @@ class Arbiter(object):
 
     # done: 若进程收到信号, 此方法会首先被调用. 如Ctrl-C时候, 会传入sig=2(SIGINT)
     def signal(self, sig, frame):
-        self._log('signal sig=%s' % sig)
+        self._log('signal and will wakeup sig=%s' % sig)
         if len(self.SIG_QUEUE) < 5:
             # todo: 为什么是5? 更多的信号忽略? 什么时候会产生很多的信号?
             self.SIG_QUEUE.append(sig)
@@ -231,6 +234,7 @@ class Arbiter(object):
         util._setproctitle("master [%s]" % self.proc_name)
 
         try:
+            # 看是否需要 增/减 worker
             self.manage_workers()
 
             while True:
@@ -247,6 +251,7 @@ class Arbiter(object):
                     self.manage_workers()
                     continue
 
+                self._log('run got sig=%s' % sig)
                 if sig not in self.SIG_NAMES:
                     self.log.info("Ignoring unknown signal: %s", sig)
                     continue
@@ -258,32 +263,40 @@ class Arbiter(object):
                     continue
                 self.log.info("Handling signal: %s", signame)
                 handler()
+
                 # todo: 为啥此处要 wakeup?
+                self._log('run will wakeup')
                 self.wakeup()
-        except (StopIteration, KeyboardInterrupt):
+
+        except (StopIteration, KeyboardInterrupt) as e:
+            self._log('run except1: %s' % e)
             self.halt()
         except HaltServer as inst:
+            self._log('run except2: %s' % inst)
             self.halt(reason=inst.reason, exit_status=inst.exit_status)
         except SystemExit:
+            self._log('run except3: SystemExit')
             raise
-        except Exception:
-            self.log.info("Unhandled exception in main loop",
-                          exc_info=True)
+        except Exception as e:
+            self._log('run except4: %s' % e)
+            self.log.info("Unhandled exception in main loop", exc_info=True)
             self.stop(False)
             if self.pidfile is not None:
                 self.pidfile.unlink()
             sys.exit(-1)
 
+    # do self.reap_workers
     def handle_chld(self, sig, frame):
         """SIGCHLD handling
 
         任何一个子进程(init除外)在exit后并非马上就消失，而是留下一个称外僵尸进程的
         数据结构, 等待父进程处理。另外子进程退出的时候会向其父进程发送一个SIGCHLD信号
         """
-        self._log('handle_chld')
+        self._log('handle_chld & reap_workers & wakeup')
         self.reap_workers()
         self.wakeup()
 
+    # do self.reload
     def handle_hup(self):
         """\
         HUP handling.
@@ -291,42 +304,47 @@ class Arbiter(object):
         - Start the new worker processes with a new configuration
         - Gracefully shutdown the old worker processes
         """
-        self._log('handle_hup')
+        self._log('handle_hup & self.reload')
         self.log.info("Hang up: %s", self.master_name)
         self.reload()
 
+    # raise StopIteration
     def handle_term(self):
-        "SIGTERM handling"
-        self._log('handle_term')
-        raise StopIteration
-
-    def handle_int(self):
-        "SIGINT handling"
-        self._log('handle_int')
-        self.stop(False)
-        raise StopIteration
-
-    def handle_quit(self):
-        "SIGQUIT handling"
-        self._log('handle_quit')
-        self.stop(False)
-        raise StopIteration
-
-    def handle_ttin(self):
-        """\
-        SIGTTIN handling.
-        Increases the number of workers by one.
+        """SIGTERM handling
         """
-        self._log('handle_ttin')
+        self._log('handle_term & StopIteration')
+        raise StopIteration
+
+    # self.stop & raise StopIteration
+    def handle_int(self):
+        """SIGINT handling
+        """
+        self._log('handle_int & self.stop')
+        self.stop(False)
+        raise StopIteration
+
+    # self.stop & raise StopIteration
+    def handle_quit(self):
+        """SIGQUIT handling
+        """
+        self._log('handle_quit & stop & StopIteration')
+        self.stop(False)
+        raise StopIteration
+
+    # todo SIGTTIN SIGTTOUT 是啥?
+    # increase one worker
+    def handle_ttin(self):
+        """SIGTTIN handling. Increases the number of workers by one.
+        """
+        self._log('handle_ttin & workers+=1')
         self.num_workers += 1
         self.manage_workers()
 
+    # decrease one worker
     def handle_ttou(self):
-        """\
-        SIGTTOU handling.
-        Decreases the number of workers by one.
+        """SIGTTOU handling. Decreases the number of workers by one.
         """
-        self._log('handle_ttou')
+        self._log('handle_ttou & workers-=1')
         if self.num_workers <= 1:
             return
         self.num_workers -= 1
@@ -337,7 +355,7 @@ class Arbiter(object):
         SIGUSR1 handling.
         Kill all workers by sending them a SIGUSR1
         """
-        self._log('handle_usr1')
+        self._log('handle_usr1 & kill_workers')
         self.log.reopen_files()
         self.kill_workers(signal.SIGUSR1)
 
@@ -348,7 +366,7 @@ class Arbiter(object):
         master without affecting old workers. Use this to do live
         deployment with the ability to backout a change.
         """
-        self._log('handle_usr2')
+        self._log('handle_usr2 & self.reexec')
         self.reexec()
 
     def handle_winch(self):
@@ -393,18 +411,6 @@ class Arbiter(object):
             if e.errno not in [errno.EAGAIN, errno.EINTR]:
                 raise
 
-    def halt(self, reason=None, exit_status=0):
-        """ halt arbiter """
-        self._log('halt')
-        self.stop()
-        self.log.info("Shutting down: %s", self.master_name)
-        if reason is not None:
-            self.log.info("Reason: %s", reason)
-        if self.pidfile is not None:
-            self.pidfile.unlink()
-        self.cfg.on_exit(self)
-        sys.exit(exit_status)
-
     # done: Sleep until PIPE is readable or we timeout.
     def sleep(self):
         """\
@@ -421,26 +427,42 @@ class Arbiter(object):
                 pass
         except (select.error, OSError) as e:
             # TODO: select.error is a subclass of OSError since Python 3.3.
-            self._log('sleep exception %s' % e)
+            self._log('sleep except %s' % e)
 
             # 当Ctrl-C时候, errno_number = errno.EWOULDBLOCK
-            # 而 errno.EWOULDBLOCK == errno.EAGAIN
+            # 而 errno.EWOULDBLOCK == errno.EAGAIN == 35
             # https://stackoverflow.com/questions/49049430/
             # difference-between-eagain-or-ewouldblock
             error_number = getattr(e, 'errno', e.args[0])
             if error_number not in [errno.EAGAIN, errno.EINTR]:
                 raise
         except KeyboardInterrupt:
+            self._log('sleep except KeyboardInterrupt')
             sys.exit()
 
+    # todo: halt 和 stop 的区别? 什么时候用哪个?
+    # done: stop & unlink pidfile & exit
+    def halt(self, reason=None, exit_status=0):
+        """halt arbiter
+        """
+        self._log('halt reason=%s exit_status=%s' % (reason, exit_status))
+        self.stop()
+        self.log.info("Shutting down: %s", self.master_name)
+        if reason is not None:
+            self.log.info("Reason: %s", reason)
+        if self.pidfile is not None:
+            self.pidfile.unlink()
+        self.cfg.on_exit(self)
+        sys.exit(exit_status)
+
+    # done close_sockets & self.kill_workers
     def stop(self, graceful=True):
-        """\
-        Stop workers
+        """Stop workers
 
         :attr graceful: boolean, If True (the default) workers will be
         killed gracefully  (ie. trying to wait for the current connection)
         """
-        self._log('stop')
+        self._log('stop graceful=%s' % graceful)
         unlink = (
             self.reexec_pid == self.master_pid == 0
             and not self.systemd
@@ -672,13 +694,13 @@ class Arbiter(object):
             # todo: 现在是在子进程中, 此处会hang住
             worker.init_process()
 
-            # todo: 直到Ctrl-C worker退出, 才会执行到这里
+            # todo: 如: 直到Ctrl-C worker退出, 才会执行到这里
             self._log('spawn_worker after worker init_process')
 
             sys.exit(0)
         except SystemExit:
             # 比如: worker.init_process中因为修改代码而reload时, 将会运行到这儿
-            self._log('spawn_worker SystemExit')
+            self._log('spawn_worker except SystemExit')
             raise
         except AppImportError as e:
             self.log.debug("Exception while loading the application",
@@ -686,15 +708,15 @@ class Arbiter(object):
             print("%s" % e, file=sys.stderr)
             sys.stderr.flush()
             sys.exit(self.APP_LOAD_ERROR)
-        except:
+        except Exception as e:
             # woker.init_process中因为修改代码而reload时, 不会运行到这儿
-            self._log('spawn_worker except')
+            self._log('spawn_worker except %s' % e)
             self.log.exception("Exception in worker process")
             if not worker.booted:
                 sys.exit(self.WORKER_BOOT_ERROR)
             sys.exit(-1)
         finally:
-            # woker.init_process中因为修改代码而reload时, 将会运行到这儿
+            # worker.init_process中因为修改代码而reload时, 将会运行到这儿
             self._log('spawn_worker finally')
             self.log.info("Worker exiting (pid: %s)", worker.pid)
             try:
@@ -730,13 +752,12 @@ class Arbiter(object):
 
     # done
     def kill_worker(self, pid, sig):
-        """\
-        Kill a worker
+        """Kill a worker
 
         :attr pid: int, worker pid
         :attr sig: `signal.SIG*` value
          """
-        self._log('kill_worker %s %s' % (pid, sig))
+        self._log('kill_worker pid=%s %s' % (pid, sig))
         try:
             # kill worker的时候worker进程会收到相应的信号并进行处理
             os.kill(pid, sig)
@@ -768,6 +789,6 @@ class Arbiter(object):
             color = Fore.RESET
         else:
             color = colors[the_pid % 5]
-        self.log.info('%s [%s]{%s} %s' % (
-            color, the_pid, threading.current_thread().ident, msg)
+        self.log.info('%s %s {%s} %s' % (
+            color, ' ' * 3, threading.current_thread().ident, msg)
         )

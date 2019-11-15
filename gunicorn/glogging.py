@@ -45,6 +45,7 @@ SYSLOG_FACILITIES = {
         }
 
 
+# done
 CONFIG_DEFAULTS = dict(
         version=1,
         disable_existing_loggers=False,
@@ -87,6 +88,7 @@ CONFIG_DEFAULTS = dict(
 )
 
 
+# done
 def loggers():
     """ get list of all loggers """
     root = logging.root
@@ -195,6 +197,7 @@ class Logger(object):
         self.cfg = cfg
         self.setup(cfg)
 
+    # done
     def setup(self, cfg):
         self.loglevel = self.LOG_LEVELS.get(cfg.loglevel.lower(), logging.INFO)
         self.error_log.setLevel(self.loglevel)
@@ -278,6 +281,7 @@ class Logger(object):
             lvl = self.LOG_LEVELS.get(lvl.lower(), logging.INFO)
         self.error_log.log(lvl, msg, *args, **kwargs)
 
+    # done: 格式化日志记录所需数据, 为啥子要叫 atoms ?
     def atoms(self, resp, req, environ, request_time):
         """ Gets atoms for log formating.
         """
@@ -330,31 +334,34 @@ class Logger(object):
 
         return atoms
 
+    # done
     def access(self, resp, req, environ, request_time):
         """ See http://httpd.apache.org/docs/2.0/logs.html#combined
         for format details
         """
+        disabled = self.cfg.disable_redirect_access_to_syslog
+        if (
+                self.cfg.accesslog or
+                self.cfg.logconfig or
+                self.cfg.logconfig_dict or
+                (self.cfg.syslog and not disabled)
+        ):
+            # wrap atoms:
+            # - make sure atoms will be test case insensitively
+            # - if atom doesn't exist replace it by '-'
+            safe_atoms = self.atoms_wrapper_class(
+                self.atoms(resp, req, environ, request_time))
+            try:
+                self.access_log.info(self.cfg.access_log_format, safe_atoms)
+            except:
+                self.error(traceback.format_exc())
 
-        if not (self.cfg.accesslog or self.cfg.logconfig or
-           self.cfg.logconfig_dict or
-           (self.cfg.syslog and not self.cfg.disable_redirect_access_to_syslog)):
-            return
-
-        # wrap atoms:
-        # - make sure atoms will be test case insensitively
-        # - if atom doesn't exist replace it by '-'
-        safe_atoms = self.atoms_wrapper_class(self.atoms(resp, req, environ,
-            request_time))
-
-        try:
-            self.access_log.info(self.cfg.access_log_format, safe_atoms)
-        except:
-            self.error(traceback.format_exc())
-
+    # done
     def now(self):
         """ return date in Apache Common Log Format """
         return time.strftime('[%d/%b/%Y:%H:%M:%S %z]')
 
+    # done
     def reopen_files(self):
         if self.cfg.capture_output and self.cfg.errorlog != "-":
             for stream in sys.stdout, sys.stderr:
@@ -367,28 +374,30 @@ class Logger(object):
                 os.dup2(self.logfile.fileno(), sys.stdout.fileno())
                 os.dup2(self.logfile.fileno(), sys.stderr.fileno())
 
-
         for log in loggers():
             for handler in log.handlers:
-                if isinstance(handler, logging.FileHandler):
-                    handler.acquire()
-                    try:
-                        if handler.stream:
-                            handler.close()
-                            handler.stream = handler._open()
-                    finally:
-                        handler.release()
+                if not isinstance(handler, logging.FileHandler):
+                    continue
+                handler.acquire()
+                try:
+                    if handler.stream:
+                        handler.close()
+                        handler.stream = handler._open()
+                finally:
+                    handler.release()
 
+    # done
     def close_on_exec(self):
         for log in loggers():
             for handler in log.handlers:
-                if isinstance(handler, logging.FileHandler):
-                    handler.acquire()
-                    try:
-                        if handler.stream:
-                            util.close_on_exec(handler.stream.fileno())
-                    finally:
-                        handler.release()
+                if not isinstance(handler, logging.FileHandler):
+                    continue
+                handler.acquire()
+                try:
+                    if handler.stream:
+                        util.close_on_exec(handler.stream.fileno())
+                finally:
+                    handler.release()
 
     # done
     def _get_gunicorn_handler(self, log):
