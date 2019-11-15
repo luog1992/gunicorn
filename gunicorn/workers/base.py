@@ -132,23 +132,7 @@ class Worker(object):
 
         self.init_signals()
 
-        # start the reloader
-        if self.cfg.reload:
-            def changed(fname):
-                self.log.info("Worker reloading: %s modified", fname)
-                self.alive = False
-                self.cfg.worker_int(self)
-                time.sleep(0.1)
-                # sys.exit() 相当于 raise SystemExit, 当worker进程收到
-                # SystemExit 后会退出, 然后master会重新启动一个worker
-                sys.exit(0)
-
-            reloader_cls = reloader_engines[self.cfg.reload_engine]
-            # reloader主要是判断(监听)是否需要reload, callback是具体的reload方法
-            self.reloader = reloader_cls(
-                extra_files=self.cfg.reload_extra_files, callback=changed)
-            # reloader 是一个线程
-            self.reloader.start()
+        self._start_reloader()
 
         self.load_wsgi()
         self.cfg.post_worker_init(self)
@@ -158,7 +142,27 @@ class Worker(object):
         self.run()
 
     # done
-    # todo: reloader 部分
+    def _start_reloader(self):
+        # start the reloader
+        if not self.cfg.reload:
+            return
+        def changed(fname):
+            self.log.info("Worker reloading: %s modified", fname)
+            self.alive = False
+            self.cfg.worker_int(self)
+            time.sleep(0.1)
+            # sys.exit() 相当于 raise SystemExit, 当worker进程收到
+            # SystemExit 后会退出, 然后master会重新启动一个worker
+            sys.exit(0)
+
+        reloader_cls = reloader_engines[self.cfg.reload_engine]
+        # reloader主要是判断(监听)是否需要reload, callback是具体的reload方法
+        self.reloader = reloader_cls(
+            extra_files=self.cfg.reload_extra_files, callback=changed)
+        # reloader 是一个线程
+        self.reloader.start()
+
+    # done
     def load_wsgi(self):
         self._log('load_wsgi')
         try:
@@ -216,8 +220,11 @@ class Worker(object):
         self._log('handle_exit: %s' % sig)
         self.alive = False
 
+    # todo: 当Ctrl-C的时候, worker会收到sig=SIGINT, 然后master进程
+    #  在收到SIGINT后会kill_worker, 也会触发该方法, 此时sig=SIGQUIT,
+    #  所以问题是: 该方法会被调用2次!?
     def handle_quit(self, sig, frame):
-        self._log('handle_quit: %s' % sig)
+        self._log('handle_quit: %s sys.exit(0)' % sig)
         self.alive = False
         # worker_int callback
         self.cfg.worker_int(self)
@@ -225,7 +232,7 @@ class Worker(object):
         sys.exit(0)
 
     def handle_abort(self, sig, frame):
-        self._log('handle_abort: %s' % sig)
+        self._log('handle_abort: %s & sys.exit(1)' % sig)
         self.alive = False
         self.cfg.worker_abort(self)
         sys.exit(1)

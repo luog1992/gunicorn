@@ -220,11 +220,11 @@ class Arbiter(object):
 
     # done: 若进程收到信号, 此方法会首先被调用. 如Ctrl-C时候, 会传入sig=2(SIGINT)
     def signal(self, sig, frame):
-        self._log('signal and will wakeup sig=%s' % sig)
+        self._log('signal sig=%s & wakeup' % sig)
         if len(self.SIG_QUEUE) < 5:
             # todo: 为什么是5? 更多的信号忽略? 什么时候会产生很多的信号?
             self.SIG_QUEUE.append(sig)
-            self.wakeup()
+            self.wakeup(abc='SIG%s>' % sig)
 
     def run(self):
         """Main master loop.
@@ -266,21 +266,25 @@ class Arbiter(object):
 
                 # todo: 为啥此处要 wakeup?
                 self._log('run will wakeup')
-                self.wakeup()
+                self.wakeup(abc='RUN>')
 
-        except (StopIteration, KeyboardInterrupt) as e:
-            self._log('run except1: %s' % e)
-            self.halt()
+        except StopIteration:
+            self._log('run except1: StopIteration')
+            self.halt(abc='RUN>')
+        except KeyboardInterrupt:
+            self._log('run except1: KeyboardInterrupt')
+            self.halt(abc='RUN>')
         except HaltServer as inst:
             self._log('run except2: %s' % inst)
-            self.halt(reason=inst.reason, exit_status=inst.exit_status)
+            self.halt(reason=inst.reason, exit_status=inst.exit_status,
+                      abc='RUN>')
         except SystemExit:
             self._log('run except3: SystemExit')
             raise
         except Exception as e:
             self._log('run except4: %s' % e)
             self.log.info("Unhandled exception in main loop", exc_info=True)
-            self.stop(False)
+            self.stop(False, abc='RUN>')
             if self.pidfile is not None:
                 self.pidfile.unlink()
             sys.exit(-1)
@@ -293,8 +297,8 @@ class Arbiter(object):
         数据结构, 等待父进程处理。另外子进程退出的时候会向其父进程发送一个SIGCHLD信号
         """
         self._log('handle_chld & reap_workers & wakeup')
-        self.reap_workers()
-        self.wakeup()
+        self.reap_workers(abc='H_CHLD>')
+        self.wakeup(abc='H_CHLD>')
 
     # do self.reload
     def handle_hup(self):
@@ -304,7 +308,7 @@ class Arbiter(object):
         - Start the new worker processes with a new configuration
         - Gracefully shutdown the old worker processes
         """
-        self._log('handle_hup & self.reload')
+        self._log('handle_hup & reload')
         self.log.info("Hang up: %s", self.master_name)
         self.reload()
 
@@ -319,8 +323,8 @@ class Arbiter(object):
     def handle_int(self):
         """SIGINT handling
         """
-        self._log('handle_int & self.stop')
-        self.stop(False)
+        self._log('handle_int & stop & StopIteration')
+        self.stop(False, abc='H_INT>')
         raise StopIteration
 
     # self.stop & raise StopIteration
@@ -328,7 +332,7 @@ class Arbiter(object):
         """SIGQUIT handling
         """
         self._log('handle_quit & stop & StopIteration')
-        self.stop(False)
+        self.stop(False, abc='H_QUIT>')
         raise StopIteration
 
     # todo SIGTTIN SIGTTOUT 是啥?
@@ -357,7 +361,7 @@ class Arbiter(object):
         """
         self._log('handle_usr1 & kill_workers')
         self.log.reopen_files()
-        self.kill_workers(signal.SIGUSR1)
+        self.kill_workers(signal.SIGUSR1, abc='H_USR1>')
 
     def handle_usr2(self):
         """\
@@ -366,7 +370,7 @@ class Arbiter(object):
         master without affecting old workers. Use this to do live
         deployment with the ability to backout a change.
         """
-        self._log('handle_usr2 & self.reexec')
+        self._log('handle_usr2 & reexec')
         self.reexec()
 
     def handle_winch(self):
@@ -375,7 +379,7 @@ class Arbiter(object):
         if self.cfg.daemon:
             self.log.info("graceful stop of workers")
             self.num_workers = 0
-            self.kill_workers(signal.SIGTERM)
+            self.kill_workers(signal.SIGTERM, abc='H_WINCH>')
         else:
             self.log.debug("SIGWINCH ignored. Not daemonized")
 
@@ -398,11 +402,11 @@ class Arbiter(object):
             util._setproctitle("master [%s]" % self.proc_name)
 
     # done: 向 PIPE 中写入数据
-    def wakeup(self):
+    def wakeup(self, abc=''):
         """\
         Wake up the arbiter by writing to the PIPE
         """
-        self._log('wakeup')
+        self._log('%s wakeup' % abc)
         try:
             os.write(self.PIPE[1], b'.')
         except IOError as e:
@@ -440,29 +444,33 @@ class Arbiter(object):
             self._log('sleep except KeyboardInterrupt')
             sys.exit()
 
-    # todo: halt 和 stop 的区别? 什么时候用哪个?
+    # halt 是做终止后的清理工作
     # done: stop & unlink pidfile & exit
-    def halt(self, reason=None, exit_status=0):
+    def halt(self, reason=None, exit_status=0, abc=''):
         """halt arbiter
         """
-        self._log('halt reason=%s exit_status=%s' % (reason, exit_status))
-        self.stop()
+        self._log('%s halt reason=%s exit_status=%s' %
+                  (abc, reason, exit_status))
+        abc += 'HALT>'
+        self.stop(abc=abc)
         self.log.info("Shutting down: %s", self.master_name)
         if reason is not None:
             self.log.info("Reason: %s", reason)
         if self.pidfile is not None:
             self.pidfile.unlink()
         self.cfg.on_exit(self)
+        self._log('Shutting down %s' % self.master_name)
         sys.exit(exit_status)
 
-    # done close_sockets & self.kill_workers
-    def stop(self, graceful=True):
+    # stop 是停止workers
+    # done close_sockets & kill_workers
+    def stop(self, graceful=True, abc=''):
         """Stop workers
 
         :attr graceful: boolean, If True (the default) workers will be
         killed gracefully  (ie. trying to wait for the current connection)
         """
-        self._log('stop graceful=%s' % graceful)
+        self._log('%s stop graceful=%s' % (abc, graceful))
         unlink = (
             self.reexec_pid == self.master_pid == 0
             and not self.systemd
@@ -474,14 +482,19 @@ class Arbiter(object):
         sig = signal.SIGTERM
         if not graceful:
             sig = signal.SIGQUIT
+
+        abc += 'STOP>'
         limit = time.time() + self.cfg.graceful_timeout
+
         # instruct the workers to exit
-        self.kill_workers(sig)
+        self._log('stop will %s workers' % sig.name)
+        self.kill_workers(sig, abc=abc)
         # wait until the graceful timeout
         while self.WORKERS and time.time() < limit:
             time.sleep(0.1)
 
-        self.kill_workers(signal.SIGKILL)
+        self._log('stop will SIGKILL workers')
+        self.kill_workers(signal.SIGKILL, abc=abc)
 
     def reexec(self):
         """\
@@ -593,17 +606,18 @@ class Arbiter(object):
             if not worker.aborted:
                 self.log.critical("WORKER TIMEOUT (pid:%s)", pid)
                 worker.aborted = True
-                self.kill_worker(pid, signal.SIGABRT)
+                self.kill_worker(pid, signal.SIGABRT, abc='MD_WKS>')
             else:
-                self.kill_worker(pid, signal.SIGKILL)
+                self.kill_worker(pid, signal.SIGKILL, abc='MD_WKS>')
 
-    def reap_workers(self):
-        """\
-        Reap workers to avoid zombie processes
+    # Reap workers to avoid zombie processes
+    def reap_workers(self, abc=''):
+        """Reap workers to avoid zombie processes
         """
-        self._log('reap_workers')
+        self._log('%s reap_workers' % abc)
         try:
             while True:
+                # -1: meaning wait for any child process
                 wpid, status = os.waitpid(-1, os.WNOHANG)
                 if not wpid:
                     break
@@ -644,7 +658,7 @@ class Arbiter(object):
         workers = sorted(workers, key=lambda w: w[1].age)
         while len(workers) > self.num_workers:
             (pid, _) = workers.pop(0)
-            self.kill_worker(pid, signal.SIGTERM)
+            self.kill_worker(pid, signal.SIGTERM, abc='MN_WKS>')
 
         active_worker_count = len(workers)
         if self._last_logged_active_worker_count != active_worker_count:
@@ -689,18 +703,18 @@ class Arbiter(object):
             self.log.info("Booting worker with pid: %s", worker.pid)
             self.cfg.post_fork(self, worker)
 
-            self._log('spawn_worker before worker init_process')
+            worker._log('spawn_worker before worker init_process')
 
             # todo: 现在是在子进程中, 此处会hang住
             worker.init_process()
 
             # todo: 如: 直到Ctrl-C worker退出, 才会执行到这里
-            self._log('spawn_worker after worker init_process')
+            worker._log('spawn_worker after worker init_process')
 
             sys.exit(0)
         except SystemExit:
             # 比如: worker.init_process中因为修改代码而reload时, 将会运行到这儿
-            self._log('spawn_worker except SystemExit')
+            worker._log('spawn_worker except SystemExit')
             raise
         except AppImportError as e:
             self.log.debug("Exception while loading the application",
@@ -710,14 +724,14 @@ class Arbiter(object):
             sys.exit(self.APP_LOAD_ERROR)
         except Exception as e:
             # woker.init_process中因为修改代码而reload时, 不会运行到这儿
-            self._log('spawn_worker except %s' % e)
+            worker._log('spawn_worker except %s' % e)
             self.log.exception("Exception in worker process")
             if not worker.booted:
                 sys.exit(self.WORKER_BOOT_ERROR)
             sys.exit(-1)
         finally:
             # worker.init_process中因为修改代码而reload时, 将会运行到这儿
-            self._log('spawn_worker finally')
+            worker._log('spawn_worker finally worker exiting')
             self.log.info("Worker exiting (pid: %s)", worker.pid)
             try:
                 worker.tmp.close()
@@ -740,24 +754,24 @@ class Arbiter(object):
             time.sleep(0.1 * random.random())
 
     # done
-    def kill_workers(self, sig):
+    def kill_workers(self, sig, abc=''):
         """\
         Kill all workers with the signal `sig`
         :attr sig: `signal.SIG*` value
         """
-        self._log('kill_workers: %s' % sig)
+        self._log('%s kill_workers: %s' % (abc, sig))
         worker_pids = list(self.WORKERS.keys())
         for pid in worker_pids:
-            self.kill_worker(pid, sig)
+            self.kill_worker(pid, sig, abc=abc + 'KL_WKS>')
 
     # done
-    def kill_worker(self, pid, sig):
+    def kill_worker(self, pid, sig, abc=''):
         """Kill a worker
 
         :attr pid: int, worker pid
         :attr sig: `signal.SIG*` value
          """
-        self._log('kill_worker pid=%s %s' % (pid, sig))
+        self._log('%s kill_worker pid=%s %s' % (abc, pid, sig))
         try:
             # kill worker的时候worker进程会收到相应的信号并进行处理
             os.kill(pid, sig)

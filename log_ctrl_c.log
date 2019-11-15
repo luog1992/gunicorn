@@ -1,0 +1,85 @@
+# 启动两个sync worker后 Ctrl-C 后的日志
+
+[33249] [INFO] [39m     {140735730451328} run
+[33249] [INFO] Starting gunicorn 20.0.0
+[33249] [INFO] [39m     {140735730451328} init_signals
+[33249] [INFO] Listening at: http://127.0.0.1:8000 (33249)
+[33249] [INFO] Using worker: sync
+[33249] [INFO] [39m     {140735730451328} spawn_workers
+[33249] [INFO] [39m     {140735730451328} spawn_worker
+[33249] [INFO] [39m     {140735730451328} spawn_worker before fork
+[33249] [INFO] [39m     {140735730451328} spawn_worker after fork
+
+# start worker1
+[33252] [INFO] [34m     {140735730451328} spawn_worker after fork
+[33252] [INFO] Booting worker with pid: 33252
+[33252] [INFO] [34m *** {140735730451328} spawn_worker before worker init_process
+[33252] [INFO] [34m *** {140735730451328} init_process
+[33252] [INFO] [34m *** {140735730451328} init_signals
+[33252] [INFO] [34m *** {140735730451328} load_wsgi
+
+[33249] [INFO] [39m     {140735730451328} spawn_worker
+[33249] [INFO] [39m     {140735730451328} spawn_worker before fork
+[33249] [INFO] [39m     {140735730451328} spawn_worker after fork
+
+# start worker
+[33253] [INFO] [33m     {140735730451328} spawn_worker after fork
+[33253] [INFO] Booting worker with pid: 33253
+[33253] [INFO] [33m === {140735730451328} spawn_worker before worker init_process
+[33253] [INFO] [33m === {140735730451328} init_process
+[33253] [INFO] [33m === {140735730451328} init_signals
+[33253] [INFO] [33m === {140735730451328} load_wsgi
+
+# Ctrl-C
+
+# master收到 SIGINT
+[33249] [INFO] [39m     {140735730451328} signal sig=2 & wakeup
+[33249] [INFO] [39m     {140735730451328} SIG2> wakeup
+
+# woker 1 2 收到 SIGINT
+[33253] [INFO] [33m === {140735730451328} handle_quit: 2 sys.exit(0)
+[33252] [INFO] [34m *** {140735730451328} handle_quit: 2 sys.exit(0)
+
+[33249] [INFO] [39m     {140735730451328} sleep except [Errno 35] Resource temporarily unavailable
+[33249] [INFO] [39m     {140735730451328} run got sig=2
+
+# master 触发 handle_int
+[33249] [INFO] [39m     {140735730451328} handle_int & stop & StopIteration
+[33249] [INFO] [39m     {140735730451328} H_INT> stop graceful=False
+# note: stop and SIGQUIT workers, 注意和👇一样都是在 stop 中触发, stop 中抛出的 StopIteration 在❎处被处理
+[33249] [INFO] [39m     {140735730451328} stop will SIGQUIT workers
+[33249] [INFO] [39m     {140735730451328} H_INT>STOP> kill_workers: Signals.SIGQUIT
+[33249] [INFO] [39m     {140735730451328} H_INT>STOP>KL_WKS> kill_worker pid=33252 Signals.SIGQUIT
+[33249] [INFO] [39m     {140735730451328} H_INT>STOP>KL_WKS> kill_worker pid=33253 Signals.SIGQUIT
+
+# woker 1 2 killed
+[33252] [INFO] [34m *** {140735730451328} handle_quit: 3 sys.exit(0)
+[33253] [INFO] [33m === {140735730451328} handle_quit: 3 sys.exit(0)
+[33252] [INFO] [34m *** {140735730451328} spawn_worker except SystemExit
+[33253] [INFO] [33m === {140735730451328} spawn_worker except SystemExit
+[33252] [INFO] [34m *** {140735730451328} spawn_worker finally worker exiting
+[33253] [INFO] [33m === {140735730451328} spawn_worker finally worker exiting
+# todo: 下面两行为什么是woker进程中的日志?
+[33252] [INFO] [34m     {140735730451328} run except3: SystemExit
+[33253] [INFO] [33m     {140735730451328} run except3: SystemExit
+
+# master收到woker进程发出的SIGCHLD
+[33249] [INFO] [39m     {140735730451328} handle_chld & reap_workers & wakeup
+[33249] [INFO] [39m     {140735730451328} H_CHLD> reap_workers
+[33249] [INFO] [39m     {140735730451328} H_CHLD> wakeup
+[33249] [INFO] [39m     {140735730451328} handle_chld & reap_workers & wakeup
+[33249] [INFO] [39m     {140735730451328} H_CHLD> reap_workers
+[33249] [INFO] [39m     {140735730451328} H_CHLD> wakeup
+
+# note: stop and SIGKILL workers, 注意和👆一样都是在 stop 中触发
+[33249] [INFO] [39m     {140735730451328} stop will SIGKILL workers
+[33249] [INFO] [39m     {140735730451328} H_INT>STOP> kill_workers: Signals.SIGKILL
+# ❎ stop 中抛出的 StopIteration
+[33249] [INFO] [39m     {140735730451328} run except1: StopIteration
+[33249] [INFO] [39m     {140735730451328} RUN> halt reason=None exit_status=0
+[33249] [INFO] [39m     {140735730451328} RUN>HALT> stop graceful=True
+[33249] [INFO] [39m     {140735730451328} stop will SIGTERM workers
+[33249] [INFO] [39m     {140735730451328} RUN>HALT>STOP> kill_workers: Signals.SIGTERM
+[33249] [INFO] [39m     {140735730451328} stop will SIGKILL workers
+[33249] [INFO] [39m     {140735730451328} RUN>HALT>STOP> kill_workers: Signals.SIGKILL
+[33249] [INFO] [39m     {140735730451328} Shutting down Master
