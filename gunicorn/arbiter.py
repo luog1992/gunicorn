@@ -233,6 +233,7 @@ class Arbiter(object):
         self.start()
         util._setproctitle("master [%s]" % self.proc_name)
 
+        abc = 'RUN>'
         try:
             # 看是否需要 增/减 worker
             self.manage_workers()
@@ -270,26 +271,26 @@ class Arbiter(object):
 
         except StopIteration:
             self._log('run except1: StopIteration')
-            self.halt(abc='RUN>')
+            self.halt(abc=abc)
         except KeyboardInterrupt:
             self._log('run except1: KeyboardInterrupt')
-            self.halt(abc='RUN>')
+            self.halt(abc=abc)
         except HaltServer as inst:
             self._log('run except2: %s' % inst)
             self.halt(reason=inst.reason, exit_status=inst.exit_status,
-                      abc='RUN>')
+                      abc=abc)
         except SystemExit:
             self._log('run except3: SystemExit')
             raise
         except Exception as e:
             self._log('run except4: %s' % e)
             self.log.info("Unhandled exception in main loop", exc_info=True)
-            self.stop(False, abc='RUN>')
+            self.stop(False, abc=abc)
             if self.pidfile is not None:
                 self.pidfile.unlink()
             sys.exit(-1)
 
-    # do self.reap_workers
+    # reap_workers & wakeup
     def handle_chld(self, sig, frame):
         """SIGCHLD handling
 
@@ -300,10 +301,19 @@ class Arbiter(object):
         self.reap_workers(abc='H_CHLD>')
         self.wakeup(abc='H_CHLD>')
 
-    # do self.reload
+    # reload
     def handle_hup(self):
-        """\
-        HUP handling.
+        """HUP handling.
+
+        SIGHUP会在以下3种情况下被发送给相应的进程：
+
+        1. 终端关闭时，该信号被发送到session首进程以及作为job提交的进程（即用 & 符号提交的进程）
+        2. session首进程退出时，该信号被发送到该session中的前台进程组中的每一个进程
+        3. 若父进程退出导致进程组成为孤儿进程组，且该进程组中有进程处于停止状态（收到SIGSTOP或SIGTSTP信号），
+           该信号会被发送到该进程组中的每一个进程。
+
+        系统对SIGHUP信号的默认处理是终止收到该信号的进程。所以若程序中没有捕捉该信号，当收到该信号时，进程就会退出。
+
         - Reload configuration
         - Start the new worker processes with a new configuration
         - Gracefully shutdown the old worker processes
@@ -315,11 +325,15 @@ class Arbiter(object):
     # raise StopIteration
     def handle_term(self):
         """SIGTERM handling
+
+        此方法中没有直接 stop, 而是 StopIteration, 然后再 run 中
+        捕获到 StopIteration 后会 halt, 故是 优雅地 终止. 相比之下,
+        handle_int handle_quit 会先 stop, 后 StopIteration.
         """
         self._log('handle_term & StopIteration')
         raise StopIteration
 
-    # self.stop & raise StopIteration
+    # stop & raise StopIteration
     def handle_int(self):
         """SIGINT handling
         """
@@ -327,7 +341,7 @@ class Arbiter(object):
         self.stop(False, abc='H_INT>')
         raise StopIteration
 
-    # self.stop & raise StopIteration
+    # stop & raise StopIteration
     def handle_quit(self):
         """SIGQUIT handling
         """
@@ -335,7 +349,7 @@ class Arbiter(object):
         self.stop(False, abc='H_QUIT>')
         raise StopIteration
 
-    # todo SIGTTIN SIGTTOUT 是啥?
+    # todo SIGTTIN SIGTTOU 是啥?
     # increase one worker
     def handle_ttin(self):
         """SIGTTIN handling. Increases the number of workers by one.
@@ -354,18 +368,20 @@ class Arbiter(object):
         self.num_workers -= 1
         self.manage_workers()
 
+    # kill all workers
     def handle_usr1(self):
-        """\
-        SIGUSR1 handling.
+        """SIGUSR1 handling.
+
         Kill all workers by sending them a SIGUSR1
         """
         self._log('handle_usr1 & kill_workers')
         self.log.reopen_files()
         self.kill_workers(signal.SIGUSR1, abc='H_USR1>')
 
+    # reexec
     def handle_usr2(self):
-        """\
-        SIGUSR2 handling.
+        """SIGUSR2 handling.
+
         Creates a new master/worker set as a slave of the current
         master without affecting old workers. Use this to do live
         deployment with the ability to backout a change.
@@ -444,7 +460,7 @@ class Arbiter(object):
             self._log('sleep except KeyboardInterrupt')
             sys.exit()
 
-    # halt 是做终止后的清理工作
+    # halt 是做stop后的清理工作
     # done: stop & unlink pidfile & exit
     def halt(self, reason=None, exit_status=0, abc=''):
         """halt arbiter
@@ -462,7 +478,7 @@ class Arbiter(object):
         self._log('Shutting down %s' % self.master_name)
         sys.exit(exit_status)
 
-    # stop 是停止workers
+    # stop 是关闭socket & 停止workers
     # done close_sockets & kill_workers
     def stop(self, graceful=True, abc=''):
         """Stop workers
@@ -497,8 +513,7 @@ class Arbiter(object):
         self.kill_workers(signal.SIGKILL, abc=abc)
 
     def reexec(self):
-        """\
-        Relaunch the master and workers.
+        """Relaunch the master and workers.
         """
         self._log('reexec')
         if self.reexec_pid != 0:
@@ -531,7 +546,9 @@ class Arbiter(object):
         # exec the process using the original environment
         os.execvpe(self.START_CTX[0], self.START_CTX['args'], environ)
 
+    # reload 目前只会在 handle_hup 中被调用
     def reload(self):
+        abc = 'RELOAD>'
         self._log('reload')
         old_address = self.cfg.address
 
@@ -560,6 +577,7 @@ class Arbiter(object):
             # close all listeners
             for l in self.LISTENERS:
                 l.close()
+            # todo: 此时为什么不想 _create_listeners 中那样考虑 fds?
             # init new listeners
             self.LISTENERS = sock.create_sockets(self.cfg, self.log)
             listeners_str = ",".join([str(l) for l in self.LISTENERS])
@@ -582,7 +600,7 @@ class Arbiter(object):
 
         # spawn new workers
         for _ in range(self.cfg.workers):
-            self.spawn_worker()
+            self.spawn_worker(abc=abc)
 
         # manage workers
         self.manage_workers()
@@ -673,8 +691,8 @@ class Arbiter(object):
             )
 
     # done
-    def spawn_worker(self):
-        self._log('spawn_worker')
+    def spawn_worker(self, abc=''):
+        self._log('%s spawn_worker' % abc)
         self.worker_age += 1
         worker = self.worker_class(self.worker_age, self.pid, self.LISTENERS,
                                    self.app, self.timeout / 2.0,
@@ -750,7 +768,7 @@ class Arbiter(object):
         """
         self._log('spawn_workers')
         for _ in range(self.num_workers - len(self.WORKERS)):
-            self.spawn_worker()
+            self.spawn_worker(abc='SP_WKS>')
             time.sleep(0.1 * random.random())
 
     # done

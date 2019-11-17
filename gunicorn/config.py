@@ -182,6 +182,7 @@ class Config(object):
                 opts[name] = value.get()
         return opts
 
+    # done
     @property
     def env(self):
         raw_env = self.settings['raw_env'].get()
@@ -196,9 +197,7 @@ class Config(object):
                 k, v = s.split('=', 1)
             except ValueError:
                 raise RuntimeError("environment setting %r invalid" % s)
-
             env[k] = v
-
         return env
 
     @property

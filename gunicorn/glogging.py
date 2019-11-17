@@ -220,9 +220,9 @@ class Logger(object):
             self.error_log, cfg.errorlog,
             logging.Formatter(self.error_fmt, self.datefmt)
         )
-        _fh = logging.FileHandler('.log.error')
-        _fh.setFormatter(logging.Formatter(self.error_fmt, self.datefmt))
-        self.error_log.addHandler(_fh)
+        # _fh = logging.FileHandler('.error.log')
+        # _fh.setFormatter(logging.Formatter(self.error_fmt, self.datefmt))
+        # self.error_log.addHandler(_fh)
 
         # set gunicorn.access handler
         if cfg.accesslog is not None:
