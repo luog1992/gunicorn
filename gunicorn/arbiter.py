@@ -659,14 +659,14 @@ class Arbiter(object):
         try:
             while True:
                 # -1: meaning wait for any child process, 不一定都是
-                # workers, 也可能是 reexec 中 fork 得到的 副master
+                # workers, 也可能是 reexec 中 fork 得到的子进程
                 wpid, status = os.waitpid(-1, os.WNOHANG)
                 if not wpid:
                     break
 
                 self._log('%s reap_workers wpid=%s reexec_pid=%s master_pid=%s'
                           % (abc, wpid, self.reexec_pid, self.master_pid))
-                # reexec 中 fork 得到的 副master
+                # reexec 中 fork 得到的 子进程
                 if self.reexec_pid == wpid:
                     self.reexec_pid = 0
                 else:

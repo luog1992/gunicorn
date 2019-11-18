@@ -62,7 +62,7 @@
 [8270] [INFO] [39m     {140736046486400} run
 [8270] [INFO] [39m     {140736046486400} start Starting gunicorn 20.0.0
 
-# ‼️ 此处 master_pid != 0
+# ❗️️此处 master_pid != 0
 [8270] [INFO] [39m     {140736046486400} start master Master.2 master_pid=8251 reexec_pid=0
 [8270] [INFO] [39m     {140736046486400} init_signals
 [8270] [INFO] [39m     {140736046486400} create listeners fds=[6]
@@ -70,7 +70,7 @@
 # 🍀 reexec 产生的新进程 退出💥, 然后 master 进程收到信号并处理
 [8251] [INFO] [39m     {140736046486400} handle_chld & reap_workers & wakeup
 [8251] [INFO] [39m     {140736046486400} H_CHLD> reap_workers
-# todo: ⁉️ 此处 master_pid 怎么等于 0 了? 理论上只有 maybe_promote_master 会修改 master_id, 但是没有相关的日志!!
+# todo: ❓️ 此处 master_pid 怎么等于 0 了? 理论上只有 maybe_promote_master 会修改 master_id, 但是没有相关的日志!!
 [8251] [INFO] [39m     {140736046486400} H_CHLD> reap_workers wpid=8270 reexec_pid=8270 master_pid=0
 [8251] [INFO] [39m     {140736046486400} H_CHLD> wakeup
 

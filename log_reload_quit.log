@@ -20,7 +20,7 @@
 [65874] [INFO] [36m >>> {140735730451328} init_signals
 [65874] [INFO] [36m >>> {140735730451328} load_wsgi
 
-# ⚠️ 关闭终端
+# 🔥️ 关闭终端
 
 # todo: 为啥收到了两次SIGHUP📶?
 [65871] [INFO [39m     {140735730451328} signal sig=1 & wakeup
@@ -42,7 +42,7 @@
 # 重新spawn workers
 [65871] [INFO] [39m     {140735730451328} RELOAD> spawn_worker
 [65871] [INFO] [39m     {140735730451328} spawn_worker before fork
-[65871] [INFO] [39m     {140735730451328} spawn_worker after fork              # ✔️
+[65871] [INFO] [39m     {140735730451328} spawn_worker after fork              # 🌲️
 
 [65871] [INFO] [39m     {140735730451328} run will wakeup  # 此处接 ❌
 [65871] [INFO] [39m     {140735730451328} RUN> wakeup
@@ -50,9 +50,9 @@
 # 处理第二个 SIGHUP📶, 会调用 reload
 [65871] [INFO] [39m     {140735730451328} run got sig=1
 [65871] [INFO] [39m     {140735730451328} handle_hup & reload
-[65871] [INFO] [39m     {140735730451328} reload                               # ❤️
+[65871] [INFO] [39m     {140735730451328} reload                               # 🍺️
 
-# ✔️ 处启动的worker
+# 🌲️ 处启动的worker
 [65901] [INFO] [32m     {140735730451328} spawn_worker after fork
 [65901] [INFO] Booting worker with pid: 65901
 [65901] [INFO] [32m +++ {140735730451328} spawn_worker before worker init_process
@@ -60,11 +60,11 @@
 [65901] [INFO] [32m +++ {140735730451328} init_signals
 [65901] [INFO] [32m +++ {140735730451328} load_wsgi
 
-[65871] [INFO] [39m     {140735730451328} RELOAD> spawn_worker     # 此处接 ❤️
+[65871] [INFO] [39m     {140735730451328} RELOAD> spawn_worker     # 此处接 🍺️
 [65871] [INFO] [39m     {140735730451328} spawn_worker before fork
 [65871] [INFO] [39m     {140735730451328} spawn_worker after fork              # 🍀
 
-# 🍀 处启动新的worker, 然后kill了 ✔️ 处启动的worker? 为啥子要这么搞嘞?
+# 🍀 处启动新的worker, 然后kill了 🌲️ 处启动的worker? 为啥子要这么搞嘞?
 [65871] [INFO] [39m     {140735730451328} MN_WKS> kill_worker pid=65901 Signals.SIGTERM
 ## [65871] [INFO] [39m     {140735730451328} run will wakeup
 ## [65871] [INFO] [39m     {140735730451328} RUN> wakeup
@@ -81,20 +81,20 @@
 [65902] [INFO] [34m *** {140735730451328} init_signals
 [65902] [INFO] [34m *** {140735730451328} load_wsgi
 
-# ✔️ 处启动的worker退出
+# 🌲️ 处启动的worker退出
 [65901] [INFO] [32m +++ {140735730451328} spawn_worker after worker init_process
 [65901] [INFO] [32m +++ {140735730451328} spawn_worker except SystemExit
 [65901] [INFO] [32m +++ {140735730451328} spawn_worker finally worker exiting
 [65901] [INFO] Worker exiting (pid: 65901)
 [65901] [INFO] [32m     {140735730451328} run except3: SystemExit
 
-# master处理 ✔️ 处worker的退出
+# master处理 🌲️ 处worker的退出
 [65871] [INFO] [39m     {140735730451328} handle_chld & reap_workers & wakeup
 [65871] [INFO] [39m     {140735730451328} H_CHLD> reap_workers
 [65871] [INFO] [39m     {140735730451328} H_CHLD> wakeup
 [65871] [INFO] [39m     {140735730451328} sleep except [Errno 35] Resource temporarily unavailable
 
-# ⚠️ 使用 kill -QUIT 退出进程
+# 🔥️ 使用 kill -QUIT 退出进程
 
 # 收到 SIGQUIT📶
 [65871] [INFO] [39m     {140735730451328} signal sig=3 & wakeup
