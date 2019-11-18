@@ -65,8 +65,16 @@ class Arbiter(object):
         self._last_logged_active_worker_count = None
         self.log = None
 
+        # 一下属性会在 setup 中赋值
+        self.app = None
+        self.cfg = None
+        self.worker_class = None
+        self.address = None
+        self.timeout = None
+        self.proc_name = None
         self.setup(app)
 
+        self.pid = None         # 在 start 中赋值
         self.pidfile = None
         self.systemd = False
         self.worker_age = 0
@@ -103,8 +111,9 @@ class Arbiter(object):
 
         if self.log is None:
             self.log = self.cfg.logger_class(app.cfg)
+        self._log('setup')
 
-        # todo: reopen files
+        # todo: reexec后, reopen_files, 是为了?
         if 'GUNICORN_FD' in os.environ:
             self.log.reopen_files()
 
@@ -113,7 +122,7 @@ class Arbiter(object):
         self.num_workers = self.cfg.workers
         self.timeout = self.cfg.timeout
         self.proc_name = self.cfg.proc_name
-        self._log('proc_name: %s' % self.proc_name)  # e.g.: app:app
+        self._log('setup proc_name: %s' % self.proc_name)  # e.g.: app:app
 
         self.log.debug('Current configuration:\n{0}'.format(
             '\n'.join(
@@ -123,7 +132,7 @@ class Arbiter(object):
             )
         ))
 
-        # set enviroment' variables
+        # set environment variables
         if self.cfg.env:
             for k, v in self.cfg.env.items():
                 os.environ[k] = v
@@ -136,18 +145,17 @@ class Arbiter(object):
     def start(self):
         """Initialize the arbiter. Start listening and set pidfile if needed.
         """
-        self.log.info("Starting gunicorn %s", __version__)
+        self._log("Starting gunicorn %s" % __version__)
 
+        # 说明 reexec 过, start 子master, 此时子master_pid != 0
         if 'GUNICORN_PID' in os.environ:
             self.master_pid = int(os.environ.get('GUNICORN_PID'))
-            # todo: 数字后缀?
             self.proc_name = self.proc_name + ".2"
             self.master_name = "Master.2"
 
         self.pid = os.getpid()
         if self.cfg.pidfile is not None:
             pidname = self.cfg.pidfile
-            # todo: 什么时候 master_pid != 0 ?
             if self.master_pid != 0:
                 pidname += ".2"
             self.pidfile = Pidfile(pidname)
@@ -174,6 +182,7 @@ class Arbiter(object):
                 fds = range(systemd.SD_LISTEN_FDS_START,
                             systemd.SD_LISTEN_FDS_START + listen_fds)
 
+            # 如果reexec过, 子master中master_id != 0
             elif self.master_pid:
                 fds = []
                 for fd in os.environ.pop('GUNICORN_FD').split(','):
@@ -185,14 +194,13 @@ class Arbiter(object):
 
         listeners_str = ",".join([str(l) for l in self.LISTENERS])
         self.log.debug("Arbiter booted")
-        self.log.info("Listening at: %s (%s)", listeners_str, self.pid)
-        self.log.info("Using worker: %s", self.cfg.worker_class_str)
+        self._log("Listening at: %s (%s)" % (listeners_str, self.pid))
+        self._log("Using worker: %s" % self.cfg.worker_class_str)
         systemd.sd_notify("READY=1\nSTATUS=Gunicorn arbiter booted", self.log)
 
     # done
     def init_signals(self):
-        """\
-        Initialize master signal handling. Most of the signals
+        """Initialize master signal handling. Most of the signals
         are queued. Child signals only wake up the master.
         """
         self._log('init_signals')
@@ -226,6 +234,7 @@ class Arbiter(object):
             self.SIG_QUEUE.append(sig)
             self.wakeup(abc='SIG%s>' % sig)
 
+    # done
     def run(self):
         """Main master loop.
         """
@@ -239,6 +248,7 @@ class Arbiter(object):
             self.manage_workers()
 
             while True:
+                # 将 子master 提升为 父master
                 self.maybe_promote_master()
 
                 # 周期性检测信号
@@ -262,7 +272,7 @@ class Arbiter(object):
                 if not handler:
                     self.log.error("Unhandled signal: %s", signame)
                     continue
-                self.log.info("Handling signal: %s", signame)
+                self._log("Handling signal: %s" % signame)
                 handler()
 
                 # todo: 为啥此处要 wakeup?
@@ -275,16 +285,16 @@ class Arbiter(object):
         except KeyboardInterrupt:
             self._log('run except1: KeyboardInterrupt')
             self.halt(abc=abc)
-        except HaltServer as inst:
-            self._log('run except2: %s' % inst)
-            self.halt(reason=inst.reason, exit_status=inst.exit_status,
-                      abc=abc)
+        except HaltServer as e:
+            self._log('run except2: %s' % e)
+            self.halt(reason=e.reason, exit_status=e.exit_status, abc=abc)
         except SystemExit:
             self._log('run except3: SystemExit')
             raise
         except Exception as e:
             self._log('run except4: %s' % e)
             self.log.info("Unhandled exception in main loop", exc_info=True)
+            # 此处直接可以调用 halt 方法的吧?
             self.stop(False, abc=abc)
             if self.pidfile is not None:
                 self.pidfile.unlink()
@@ -399,24 +409,6 @@ class Arbiter(object):
         else:
             self.log.debug("SIGWINCH ignored. Not daemonized")
 
-    def maybe_promote_master(self):
-        # self._log('maybe_promote_master')
-        if self.master_pid == 0:
-            return
-
-        if self.master_pid != os.getppid():
-            self.log.info("Master has been promoted.")
-            # reset master infos
-            self.master_name = "Master"
-            self.master_pid = 0
-            self.proc_name = self.cfg.proc_name
-            del os.environ['GUNICORN_PID']
-            # rename the pidfile
-            if self.pidfile is not None:
-                self.pidfile.rename(self.cfg.pidfile)
-            # reset proctitle
-            util._setproctitle("master [%s]" % self.proc_name)
-
     # done: 向 PIPE 中写入数据
     def wakeup(self, abc=''):
         """\
@@ -460,7 +452,7 @@ class Arbiter(object):
             self._log('sleep except KeyboardInterrupt')
             sys.exit()
 
-    # halt 是做stop后的清理工作
+    # halt 不仅stop, 而且做了stop后的清理工作
     # done: stop & unlink pidfile & exit
     def halt(self, reason=None, exit_status=0, abc=''):
         """halt arbiter
@@ -469,7 +461,7 @@ class Arbiter(object):
                   (abc, reason, exit_status))
         abc += 'HALT>'
         self.stop(abc=abc)
-        self.log.info("Shutting down: %s", self.master_name)
+        self._log("Shutting down: %s" % self.master_name)
         if reason is not None:
             self.log.info("Reason: %s", reason)
         if self.pidfile is not None:
@@ -512,29 +504,58 @@ class Arbiter(object):
         self._log('stop will SIGKILL workers')
         self.kill_workers(signal.SIGKILL, abc=abc)
 
+    def maybe_promote_master(self):
+        if self.master_pid == 0:
+            return
+        # os.getppid: Return the parent’s process id. On Unix
+        # the id returned is the one of the init process (1)
+        # todo: 不太理解
+        if self.master_pid == os.getppid():
+            return
+
+        self._log("Master has been promoted.")
+        # reset master infos
+        self.master_name = "Master"
+        self.master_pid = 0
+        self.proc_name = self.cfg.proc_name
+        del os.environ['GUNICORN_PID']
+        # rename the pidfile
+        if self.pidfile is not None:
+            self.pidfile.rename(self.cfg.pidfile)
+        # reset proc title
+        util._setproctitle("master [%s]" % self.proc_name)
+
+    # done 只会在 handle_usr2 中调用
     def reexec(self):
         """Relaunch the master and workers.
         """
         self._log('reexec')
+        # reexec后, 在子master中, reexec_pid != 0
         if self.reexec_pid != 0:
             self.log.warning("USR2 signal ignored. Child exists.")
             return
-
+        # reexec后, 在子master中, master_pid != 0
         if self.master_pid != 0:
             self.log.warning("USR2 signal ignored. Parent exists.")
             return
 
         master_pid = os.getpid()
         self.reexec_pid = os.fork()
-        if self.reexec_pid != 0:
+        if self.reexec_pid != 0:    # 父进程中
             return
+
+        # 注意, 在子master中, master_pid != 0
+        self._log('reexec master_id=%s' % master_pid)
+        self._log('reexec reexec_id=%s' % self.reexec_pid)
 
         self.cfg.pre_exec(self)
 
         environ = self.cfg.env_orig.copy()
+        # start 方法中会用到 GUNICORN_PID
         environ['GUNICORN_PID'] = str(master_pid)
 
         if self.systemd:
+            # 下面两个环境变量在 gunicorn.systemd.listen_fds 会用到
             environ['LISTEN_PID'] = str(os.getpid())
             environ['LISTEN_FDS'] = str(len(self.LISTENERS))
         else:
@@ -544,9 +565,14 @@ class Arbiter(object):
         os.chdir(self.START_CTX['cwd'])
 
         # exec the process using the original environment
+        # These functions all execute a new program, replacing
+        # the current process; they do not return. On Unix, the
+        # new executable is loaded into the current process, and
+        # will have the same process id as the caller.
         os.execvpe(self.START_CTX[0], self.START_CTX['args'], environ)
+        self._log('reexec master execvpe')
 
-    # reload 目前只会在 handle_hup 中被调用
+    # done reload 目前只会在 handle_hup 中被调用
     def reload(self):
         abc = 'RELOAD>'
         self._log('reload')
@@ -586,23 +612,16 @@ class Arbiter(object):
         # do some actions on reload
         self.cfg.on_reload(self)
 
-        # unlink pidfile
+        # unlink pidfile and create new
         if self.pidfile is not None:
             self.pidfile.unlink()
-
-        # create new pidfile
         if self.cfg.pidfile is not None:
             self.pidfile = Pidfile(self.cfg.pidfile)
             self.pidfile.create(self.pid)
 
-        # set new proc_name
         util._setproctitle("master [%s]" % self.proc_name)
-
-        # spawn new workers
         for _ in range(self.cfg.workers):
             self.spawn_worker(abc=abc)
-
-        # manage workers
         self.manage_workers()
 
     # done: Kill unused/idle workers
@@ -718,15 +737,13 @@ class Arbiter(object):
         worker.pid = os.getpid()
         try:
             util._setproctitle("worker [%s]" % self.proc_name)
-            self.log.info("Booting worker with pid: %s", worker.pid)
+            self._log("Booting worker with pid: %s" % worker.pid)
             self.cfg.post_fork(self, worker)
 
             worker._log('spawn_worker before worker init_process')
-
-            # todo: 现在是在子进程中, 此处会hang住
+            # 现在是在子进程中, 下面会hang住
             worker.init_process()
-
-            # todo: 如: 直到Ctrl-C worker退出, 才会执行到这里
+            # 如: 直到Ctrl-C worker退出, 才会执行到这里
             worker._log('spawn_worker after worker init_process')
 
             sys.exit(0)
@@ -806,7 +823,7 @@ class Arbiter(object):
                     return
             raise
 
-    def _log(self, msg):
+    def _log(self, msg, *args, **kw):
         colors = {
             0: Fore.RED,
             1: Fore.GREEN,
@@ -821,6 +838,6 @@ class Arbiter(object):
             color = Fore.RESET
         else:
             color = colors[the_pid % 5]
-        self.log.info('%s %s {%s} %s' % (
+        msg = '%s %s {%s} %s' % (
             color, ' ' * 3, threading.current_thread().ident, msg)
-        )
+        self.log.info(msg, *args, **kw)
