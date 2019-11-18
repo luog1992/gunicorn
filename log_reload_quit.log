@@ -1,4 +1,4 @@
-# 启动一个worker, 然后关闭终端, 最后使用kill -QUIT杀死进程
+# 启动一个worker, 然后关闭终端(此时会 reload), 最后使用kill -QUIT杀死进程
 
 # 启动master
 [65871] [INFO] [39m     {140735730451328} proc_name: app:app
@@ -29,7 +29,7 @@
 [65871] [INFO] [39m     {140735730451328} SIG1> wakeup
 [65871] [INFO] [39m     {140735730451328} sleep except [Errno 35] Resource temporarily unavailable
 
-# 处理第一个 SIGHUP📶
+# 处理第一个 SIGHUP📶, 会调用 reload
 [65871] [INFO] [39m     {140735730451328} run got sig=1                        # ❌
 [65871] [INFO] [39m     {140735730451328} handle_hup & reload
 [65871] [INFO] [39m     {140735730451328} reload
@@ -47,7 +47,7 @@
 [65871] [INFO] [39m     {140735730451328} run will wakeup  # 此处接 ❌
 [65871] [INFO] [39m     {140735730451328} RUN> wakeup
 
-# 处理第二个 SIGHUP
+# 处理第二个 SIGHUP📶, 会调用 reload
 [65871] [INFO] [39m     {140735730451328} run got sig=1
 [65871] [INFO] [39m     {140735730451328} handle_hup & reload
 [65871] [INFO] [39m     {140735730451328} reload                               # ❤️

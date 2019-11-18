@@ -145,13 +145,15 @@ class Arbiter(object):
     def start(self):
         """Initialize the arbiter. Start listening and set pidfile if needed.
         """
-        self._log("Starting gunicorn %s" % __version__)
+        self._log("start Starting gunicorn %s" % __version__)
 
-        # 说明 reexec 过, start 子master, 此时子master_pid != 0
+        # reexec之后, promote master之前, master_pid != 0
         if 'GUNICORN_PID' in os.environ:
             self.master_pid = int(os.environ.get('GUNICORN_PID'))
             self.proc_name = self.proc_name + ".2"
             self.master_name = "Master.2"
+        self._log('start master %s master_pid=%s reexec_pid=%s' % (
+            self.master_name, self.master_pid, self.reexec_pid))
 
         self.pid = os.getpid()
         if self.cfg.pidfile is not None:
@@ -182,7 +184,7 @@ class Arbiter(object):
                 fds = range(systemd.SD_LISTEN_FDS_START,
                             systemd.SD_LISTEN_FDS_START + listen_fds)
 
-            # 如果reexec过, 子master中master_id != 0
+            # reexec之后, promote master之前, master_id != 0
             elif self.master_pid:
                 fds = []
                 for fd in os.environ.pop('GUNICORN_FD').split(','):
@@ -190,6 +192,7 @@ class Arbiter(object):
 
             # create_sockets中会关闭(旧)fds
             # 若 fds=None, 则从cfg中设置的bind创建sock
+            self._log('create listeners fds=%s' % fds)
             self.LISTENERS = sock.create_sockets(self.cfg, self.log, fds)
 
         listeners_str = ",".join([str(l) for l in self.LISTENERS])
@@ -248,7 +251,6 @@ class Arbiter(object):
             self.manage_workers()
 
             while True:
-                # 将 子master 提升为 父master
                 self.maybe_promote_master()
 
                 # 周期性检测信号
@@ -505,11 +507,14 @@ class Arbiter(object):
         self.kill_workers(signal.SIGKILL, abc=abc)
 
     def maybe_promote_master(self):
+        self._log('promote master master_pid=%s' % self.master_pid)
         if self.master_pid == 0:
             return
         # os.getppid: Return the parent’s process id. On Unix
         # the id returned is the one of the init process (1)
         # todo: 不太理解
+        self._log('promote master mid=%s ppid=%s' %
+                  (self.master_pid, os.getppid()))
         if self.master_pid == os.getppid():
             return
 
@@ -530,11 +535,11 @@ class Arbiter(object):
         """Relaunch the master and workers.
         """
         self._log('reexec')
-        # reexec后, 在子master中, reexec_pid != 0
+        # reexec之后, reap_works之后 , reexec_pid != 0
         if self.reexec_pid != 0:
             self.log.warning("USR2 signal ignored. Child exists.")
             return
-        # reexec后, 在子master中, master_pid != 0
+        # reexec之后, promote_master之前, master_pid != 0
         if self.master_pid != 0:
             self.log.warning("USR2 signal ignored. Parent exists.")
             return
@@ -544,9 +549,8 @@ class Arbiter(object):
         if self.reexec_pid != 0:    # 父进程中
             return
 
-        # 注意, 在子master中, master_pid != 0
-        self._log('reexec master_id=%s' % master_pid)
-        self._log('reexec reexec_id=%s' % self.reexec_pid)
+        self._log('reexec master_pid=%s' % master_pid)
+        self._log('reexec reexec_pid=%s' % self.reexec_pid)
 
         self.cfg.pre_exec(self)
 
@@ -568,9 +572,9 @@ class Arbiter(object):
         # These functions all execute a new program, replacing
         # the current process; they do not return. On Unix, the
         # new executable is loaded into the current process, and
-        # will have the same process id as the caller.
+        # **will have the same process id as the caller.**
+        self._log('reexec will execvpe')
         os.execvpe(self.START_CTX[0], self.START_CTX['args'], environ)
-        self._log('reexec master execvpe')
 
     # done reload 目前只会在 handle_hup 中被调用
     def reload(self):
@@ -654,10 +658,15 @@ class Arbiter(object):
         self._log('%s reap_workers' % abc)
         try:
             while True:
-                # -1: meaning wait for any child process
+                # -1: meaning wait for any child process, 不一定都是
+                # workers, 也可能是 reexec 中 fork 得到的 副master
                 wpid, status = os.waitpid(-1, os.WNOHANG)
                 if not wpid:
                     break
+
+                self._log('%s reap_workers wpid=%s reexec_pid=%s master_pid=%s'
+                          % (abc, wpid, self.reexec_pid, self.master_pid))
+                # reexec 中 fork 得到的 副master
                 if self.reexec_pid == wpid:
                     self.reexec_pid = 0
                 else:

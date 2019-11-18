@@ -1,0 +1,79 @@
+# reexec 过程分析
+
+# 启动master
+[8251] [INFO] [39m     {140736046486400} setup
+[8251] [INFO] [39m     {140736046486400} setup proc_name: app:app
+[8251] [INFO] [39m     {140736046486400} START_CTX: {'args': ['/Users/xianyu/prjs/gunicorn/.venv/bin/python3.7', '/Users/xianyu/prjs/gunicorn/.venv/bin/gunicorn', '-w', '1', '-k', 'sync', '--error-logfile', '.error.log', 'app:app'], 'cwd': '/Users/xianyu/prjs/gunicorn', 0: '/Users/xianyu/prjs/gunicorn/.venv/bin/python3.7'}
+[8251] [INFO] [39m     {140736046486400} run
+[8251] [INFO] [39m     {140736046486400} start Starting gunicorn 20.0.0
+# 🍺 初始的 master_pid reexec_pid 都是 0
+[8251] [INFO] [39m     {140736046486400} start master Master master_pid=0 reexec_pid=0
+[8251] [INFO] [39m     {140736046486400} init_signals
+[8251] [INFO] [39m     {140736046486400} create listeners fds=None
+[8251] [INFO] [39m     {140736046486400} Listening at: http://127.0.0.1:8000 (8251)
+[8251] [INFO] [39m     {140736046486400} Using worker: sync
+[8251] [INFO] [39m     {140736046486400} spawn_workers
+[8251] [INFO] [39m     {140736046486400} SP_WKS> spawn_worker
+[8251] [INFO] [39m     {140736046486400} spawn_worker before fork
+[8251] [INFO] [39m     {140736046486400} spawn_worker after fork
+
+# 启动worker
+[8256] [INFO] [32m     {140736046486400} spawn_worker after fork
+[8256] [INFO] [32m     {140736046486400} Booting worker with pid: 8256
+[8256] [INFO] [32m +++ {140736046486400} spawn_worker before worker init_process
+[8256] [INFO] [32m +++ {140736046486400} init_process
+[8256] [INFO] [32m +++ {140736046486400} init_signals
+[8256] [INFO] [32m +++ {140736046486400} load_wsgi
+
+[8251] [INFO] [39m     {140736046486400} promote master master_pid=0
+[8251] [INFO] [39m     {140736046486400} promote master master_pid=0
+
+# 收到 SIGUSR2📶
+[8251] [INFO] [39m     {140736046486400} signal sig=31 & wakeup
+[8251] [INFO] [39m     {140736046486400} SIG31> wakeup
+
+## [8251] [INFO] [39m     {140736046486400} sleep except [Errno 35] Resource temporarily unavailable
+## [8251] [INFO] [39m     {140736046486400} promote master master_pid=0
+
+# 调用 reexec 👏
+[8251] [INFO] [39m     {140736046486400} run got sig=31
+[8251] [INFO] [39m     {140736046486400} Handling signal: usr2                 # 🌲
+[8251] [INFO] [39m     {140736046486400} handle_usr2 & reexec
+[8251] [INFO] [39m     {140736046486400} reexec                                # 💄
+
+[8251] [INFO] [39m     {140736046486400} run will wakeup   # 此处接 🌲
+[8251] [INFO] [39m     {140736046486400} RUN> wakeup
+
+# 在 reexec 之前, master_pid==0
+[8251] [INFO] [39m     {140736046486400} promote master master_pid=0
+[8251] [INFO] [39m     {140736046486400} sleep except [Errno 35] Resource temporarily unavailable
+
+# 接这 💄, reexec 时 fork 产生新进程 8270 🍀
+[8270] [INFO] [31m     {140736046486400} reexec master_pid=8251
+[8270] [INFO] [31m     {140736046486400} reexec reexec_pid=0
+[8270] [INFO] [31m     {140736046486400} reexec will execvpe
+
+# reexec => setup
+[8270] [INFO] [39m     {140736046486400} setup
+[8270] [INFO] [39m     {140736046486400} setup proc_name: app:app
+[8270] [INFO] [39m     {140736046486400} START_CTX: {'args': ['/Users/xianyu/prjs/gunicorn/.venv/bin/python3.7', '/Users/xianyu/prjs/gunicorn/.venv/bin/gunicorn', '-w', '1', '-k', 'sync', '--error-logfile', '.error.log', 'app:app'], 'cwd': '/Users/xianyu/prjs/gunicorn', 0: '/Users/xianyu/prjs/gunicorn/.venv/bin/python3.7'}
+
+# reexec => run
+[8270] [INFO] [39m     {140736046486400} run
+[8270] [INFO] [39m     {140736046486400} start Starting gunicorn 20.0.0
+
+# ‼️ 此处 master_pid != 0
+[8270] [INFO] [39m     {140736046486400} start master Master.2 master_pid=8251 reexec_pid=0
+[8270] [INFO] [39m     {140736046486400} init_signals
+[8270] [INFO] [39m     {140736046486400} create listeners fds=[6]
+
+# 🍀 reexec 产生的新进程 退出💥, 然后 master 进程收到信号并处理
+[8251] [INFO] [39m     {140736046486400} handle_chld & reap_workers & wakeup
+[8251] [INFO] [39m     {140736046486400} H_CHLD> reap_workers
+# todo: ⁉️ 此处 master_pid 怎么等于 0 了? 理论上只有 maybe_promote_master 会修改 master_id, 但是没有相关的日志!!
+[8251] [INFO] [39m     {140736046486400} H_CHLD> reap_workers wpid=8270 reexec_pid=8270 master_pid=0
+[8251] [INFO] [39m     {140736046486400} H_CHLD> wakeup
+
+[8251] [INFO] [39m     {140736046486400} sleep except [Errno 35] Resource temporarily unavailable
+
+[8251] [INFO] [39m     {140736046486400} promote master master_pid=0
