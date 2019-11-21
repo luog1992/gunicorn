@@ -1,0 +1,54 @@
+# 由于修改文件导致worker重启日志分析
+# 启动命令: gunicorn -w 1 -k sync --error-logfile .error.log --reload-extra-file app.py --reload app:app
+
+# 启动master🧓
+[16340] [INFO] [39m     {140736069624704} setup
+[16340] [INFO] [39m     {140736069624704} setup proc_name: app:app
+[16340] [INFO] [39m     {140736069624704} run
+[16340] [INFO] [39m     {140736069624704} start Starting gunicorn 20.0.0
+[16340] [INFO] [39m     {140736069624704} start master Master master_pid=0 reexec_pid=0
+[16340] [INFO] [39m     {140736069624704} init_signals
+[16340] [INFO] [39m     {140736069624704} create listeners fds=None
+[16340] [INFO] [39m     {140736069624704} Listening at: http://127.0.0.1:8000 (16340)
+[16340] [INFO] [39m     {140736069624704} Using worker: sync
+[16340] [INFO] [39m     {140736069624704} spawn_workers
+[16340] [INFO] [39m     {140736069624704} SP_WKS> spawn_worker
+[16340] [INFO] [39m     {140736069624704} spawn_worker before fork
+[16340] [INFO] [39m     {140736069624704} spawn_worker after fork
+
+# 启动worker👷
+[16343] [INFO] [33m     {140736069624704} spawn_worker after fork
+[16343] [INFO] [33m     {140736069624704} Booting worker with pid: 16343
+[16343] [INFO] [33m === {140736069624704} spawn_worker before worker init_process
+[16343] [INFO] [33m === {140736069624704} init_process
+[16343] [INFO] [33m === {140736069624704} init_signals
+[16343] [INFO] [33m === {140736069624704} load_wsgi
+
+# 修改app.py导致reload
+[16343] [INFO] [33m === {123145319940096} reload worker fname=/Users/xianyu/prjs/gunicorn/app.py
+[16343] [INFO] [33m === {140736069624704} spawn_worker after worker init_process
+[16343] [INFO] [33m === {140736069624704} spawn_worker except SystemExit
+[16343] [INFO] [33m === {140736069624704} spawn_worker finally worker exiting
+# master的run方法中收到 SystemExit
+[16343] [INFO] [33m     {140736069624704} run except3: SystemExit
+
+# master handle worker进程退出信号📶
+[16340] [INFO] [39m     {140736069624704} handle_chld & reap_workers & wakeup
+[16340] [INFO] [39m     {140736069624704} H_CHLD> reap_workers
+[16340] [INFO] [39m     {140736069624704} H_CHLD> reap_workers wpid=16343 reexec_pid=0 master_pid=0
+[16340] [INFO] [39m     {140736069624704} H_CHLD> wakeup
+[16340] [INFO] [39m     {140736069624704} sleep except [Errno 35] Resource temporarily unavailable
+
+# master重新启动一个worker
+[16340] [INFO] [39m     {140736069624704} spawn_workers
+[16340] [INFO] [39m     {140736069624704} SP_WKS> spawn_worker
+[16340] [INFO] [39m     {140736069624704} spawn_worker before fork
+[16340] [INFO] [39m     {140736069624704} spawn_worker after fork
+
+# 新启动的worker👷
+[16358] [INFO] [33m     {140736069624704} spawn_worker after fork
+[16358] [INFO] [33m     {140736069624704} Booting worker with pid: 16358
+[16358] [INFO] [33m === {140736069624704} spawn_worker before worker init_process
+[16358] [INFO] [33m === {140736069624704} init_process
+[16358] [INFO] [33m === {140736069624704} init_signals
+[16358] [INFO] [33m === {140736069624704} load_wsgi

@@ -32,9 +32,10 @@ from colorama import Fore
 
 class Worker(object):
 
-    SIGNALS = [getattr(signal, "SIG%s" % x)
-            for x in "ABRT HUP QUIT INT TERM USR1 USR2 WINCH CHLD".split()]
-
+    SIGNALS = [
+        getattr(signal, "SIG%s" % x) for x in
+        "ABRT HUP QUIT INT TERM USR1 USR2 WINCH CHLD".split()
+    ]
     PIPE = []
 
     def __init__(self, age, ppid, sockets, app, timeout, cfg, log):
@@ -146,8 +147,10 @@ class Worker(object):
         # start the reloader
         if not self.cfg.reload:
             return
+
         def changed(fname):
-            self.log.info("Worker reloading: %s modified", fname)
+            self._log('reload worker fname=%s' % fname)
+            # self.log.info("Worker reloading: %s modified", fname)
             self.alive = False
             self.cfg.worker_int(self)
             time.sleep(0.1)

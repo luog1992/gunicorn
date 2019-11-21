@@ -507,7 +507,7 @@ class Arbiter(object):
         self.kill_workers(signal.SIGKILL, abc=abc)
 
     def maybe_promote_master(self):
-        self._log('promote master master_pid=%s' % self.master_pid)
+        # self._log('promote master master_pid=%s' % self.master_pid)
         if self.master_pid == 0:
             return
         # os.getppid: Return the parent’s process id. On Unix

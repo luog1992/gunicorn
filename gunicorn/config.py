@@ -708,6 +708,7 @@ class WorkerConnections(Setting):
         """
 
 
+# done
 class MaxRequests(Setting):
     name = "max_requests"
     section = "Worker Processes"
@@ -728,6 +729,7 @@ class MaxRequests(Setting):
         """
 
 
+# done
 class MaxRequestsJitter(Setting):
     name = "max_requests_jitter"
     section = "Worker Processes"
