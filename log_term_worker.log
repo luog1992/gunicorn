@@ -1,0 +1,54 @@
+# 当worker正在处理请求时, 给worker发送SIGTERM📶测试
+
+# 启动gunicorn: gunicorn -w 1 -k gevent app:app
+[43:16] [18366] [INFO] [39m     {140736069624704} setup
+[43:16] [18366] [INFO] [39m     {140736069624704} setup proc_name: app:app
+[43:16] [18366] [INFO] [39m     {140736069624704} run
+[43:16] [18366] [INFO] [39m     {140736069624704} start Starting gunicorn 20.0.0
+[43:16] [18366] [INFO] [39m     {140736069624704} start master Master master_pid=0 reexec_pid=0
+[43:16] [18366] [INFO] [39m     {140736069624704} init_signals
+[43:16] [18366] [INFO] [39m     {140736069624704} create listeners fds=None
+[43:16] [18366] [INFO] [39m     {140736069624704} Listening at: http://127.0.0.1:8000 (18366)
+[43:16] [18366] [INFO] [39m     {140736069624704} Using worker: gevent
+[43:16] [18366] [INFO] [39m     {140736069624704} spawn_workers
+[43:16] [18366] [INFO] [39m     {140736069624704} SP_WKS> spawn_worker
+[43:16] [18366] [INFO] [39m     {140736069624704} spawn_worker before fork
+[43:16] [18366] [INFO] [39m     {140736069624704} spawn_worker after fork
+# 启动worker
+[43:16] [18369] [INFO] [36m     {140736069624704} spawn_worker after fork
+[43:16] [18369] [INFO] [36m     {140736069624704} Booting worker with pid: 18369
+[43:16] [18369] [INFO] [36m >>> {140736069624704} spawn_worker before worker init_process
+[43:16] [18369] [INFO] [36m >>> {4509354192} init_process
+[43:16] [18369] [INFO] [36m >>> {4509354192} init_signals
+[43:16] [18369] [INFO] [36m >>> {4509354192} load_wsgi
+
+# 启动worker后发送请求💥: curl localhost:8000/test-db/10
+# 上面url最后的数字 10 会在请求过程中 sleep(10)
+
+# 发送请求后, 马上给worker发送SIGTERM📶: kill -TERM 18369
+[43:49] [18369] [INFO] [36m >>> {4513138368} handle_exit: 15
+
+# 🔥 注意, worker收到SIGTERM📶时是 49秒, 下面worker退出是在 54秒, 中途都在等待请求处理完毕
+[43:54] [18369] [INFO] [36m >>> {4509354192} spawn_worker after worker init_process
+[43:54] [18369] [INFO] [36m >>> {4509354192} spawn_worker except SystemExit
+[43:54] [18369] [INFO] [36m >>> {4509354192} spawn_worker finally worker exiting
+[43:54] [18369] [INFO] [36m     {4509354192} run except3: SystemExit
+
+# master handler worker退出
+[43:54] [18366] [INFO] [39m     {140736069624704} handle_chld & reap_workers & wakeup
+[43:54] [18366] [INFO] [39m     {140736069624704} H_CHLD> reap_workers
+[43:54] [18366] [INFO] [39m     {140736069624704} H_CHLD> reap_workers wpid=18369 reexec_pid=0 master_pid=0
+[43:54] [18366] [INFO] [39m     {140736069624704} H_CHLD> wakeup
+[43:54] [18366] [INFO] [39m     {140736069624704} sleep except [Errno 35] Resource temporarily unavailable
+
+# 🍀 master重新spawn一个worker
+[43:54] [18366] [INFO] [39m     {140736069624704} spawn_workers
+[43:54] [18366] [INFO] [39m     {140736069624704} SP_WKS> spawn_worker
+[43:54] [18366] [INFO] [39m     {140736069624704} spawn_worker before fork
+[43:54] [18366] [INFO] [39m     {140736069624704} spawn_worker after fork
+[43:54] [18419] [INFO] [36m     {140736069624704} spawn_worker after fork
+[43:54] [18419] [INFO] [36m     {140736069624704} Booting worker with pid: 18419
+[43:54] [18419] [INFO] [36m >>> {140736069624704} spawn_worker before worker init_process
+[43:54] [18419] [INFO] [36m >>> {4509354192} init_process
+[43:54] [18419] [INFO] [36m >>> {4509354192} init_signals
+[43:54] [18419] [INFO] [36m >>> {4509354192} load_wsgi

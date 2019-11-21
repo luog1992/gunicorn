@@ -97,6 +97,7 @@ class Worker(object):
         self._log('run')
         raise NotImplementedError()
 
+    # done: PIPE, signals, wsgi, run
     def init_process(self):
         """\
         If you override this method in a subclass, the last statement
@@ -209,6 +210,11 @@ class Worker(object):
         # Don't let SIGTERM and SIGUSR1 disturb active requests
         # by interrupting system calls
         # todo: 看不懂 siginterrupt 函数
+        # If the flag argument is false then system calls will
+        # be restarted if interrupted by the specified signal.
+        # 当worker收到SIGTERM SIGUSR1时, 不会立马退出时, 而是等到请求
+        # 处理完以后再退出, 也即暂时忽略了SIGTERM(?) 那么worker进程又
+        # 是如何知道啥时该退出了呢?(请求处理完?), 参见 log_term_worker.log
         signal.siginterrupt(signal.SIGTERM, False)
         signal.siginterrupt(signal.SIGUSR1, False)
 

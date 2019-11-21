@@ -511,6 +511,7 @@ def check_is_writeable(path):
     f.close()
 
 
+# done
 def to_bytestring(value, encoding="utf8"):
     """Converts a string argument to a byte string"""
     if isinstance(value, bytes):
@@ -547,6 +548,7 @@ def warn(msg):
     sys.stderr.flush()
 
 
+# done
 def make_fail_app(msg):
     msg = to_bytestring(msg)
 
