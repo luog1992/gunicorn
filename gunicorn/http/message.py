@@ -27,6 +27,8 @@ VERSION_RE = re.compile(r"HTTP/(\d+)\.(\d+)")
 
 
 class Message(object):
+    """请求(报文)"""
+
     def __init__(self, cfg, unreader):
         self.cfg = cfg
         self.unreader = unreader
@@ -37,26 +39,26 @@ class Message(object):
         self.scheme = "https" if cfg.is_ssl else "http"
 
         # set headers limits
-        self.limit_request_fields = cfg.limit_request_fields
-        if (self.limit_request_fields <= 0
-            or self.limit_request_fields > MAX_HEADERS):
+        _limit = self.limit_request_fields = cfg.limit_request_fields
+        if _limit <= 0 or _limit > MAX_HEADERS:
             self.limit_request_fields = MAX_HEADERS
         self.limit_request_field_size = cfg.limit_request_field_size
         if self.limit_request_field_size < 0:
             self.limit_request_field_size = DEFAULT_MAX_HEADERFIELD_SIZE
 
         # set max header buffer size
-        max_header_field_size = self.limit_request_field_size or DEFAULT_MAX_HEADERFIELD_SIZE
-        self.max_buffer_headers = self.limit_request_fields * \
-            (max_header_field_size + 2) + 4
+        _max = self.limit_request_field_size or DEFAULT_MAX_HEADERFIELD_SIZE
+        self.max_buffer_headers = self.limit_request_fields * (_max + 2) + 4
 
-        unused = self.parse(self.unreader)
+        unused = self.parse(self.unreader)  # (一般是)请求体
         self.unreader.unread(unused)
         self.set_body_reader()
 
+    # 解析请求行, 请求头, 返回请求体
     def parse(self, unreader):
         raise NotImplementedError()
 
+    # done 返回如: [('Connection', 'keep-alive')]
     def parse_headers(self, data):
         cfg = self.cfg
         headers = []
@@ -101,8 +103,8 @@ class Message(object):
                 curr = lines.pop(0)
                 header_length += len(curr)
                 if header_length > self.limit_request_field_size > 0:
-                    raise LimitRequestHeaders("limit request headers "
-                            + "fields size")
+                    raise LimitRequestHeaders(
+                        "limit request headers fields size")
                 value.append(curr)
             value = ''.join(value).rstrip()
 
@@ -123,6 +125,7 @@ class Message(object):
 
         return headers
 
+    # 不同的 Transfer-encoding 有不同的接受数据的方式
     def set_body_reader(self):
         chunked = False
         content_length = None
@@ -149,6 +152,7 @@ class Message(object):
         else:
             self.body = Body(EOFReader(self.unreader))
 
+    # done
     def should_close(self):
         for (h, v) in self.headers:
             if h == "CONNECTION":
@@ -162,6 +166,8 @@ class Message(object):
 
 
 class Request(Message):
+    """请求"""
+
     def __init__(self, cfg, unreader, req_number=1):
         self.method = None
         self.uri = None
@@ -170,15 +176,16 @@ class Request(Message):
         self.fragment = None
 
         # get max request line size
-        self.limit_request_line = cfg.limit_request_line
-        if (self.limit_request_line < 0
-            or self.limit_request_line >= MAX_REQUEST_LINE):
+        _max = self.limit_request_line = cfg.limit_request_line
+        if _max < 0 or _max >= MAX_REQUEST_LINE:
             self.limit_request_line = MAX_REQUEST_LINE
 
+        # 一个长连接中处理的请求数量
         self.req_number = req_number
         self.proxy_protocol_info = None
         super().__init__(cfg, unreader)
 
+    # done, 该是改成 read_data or fetch_data 吧
     def get_data(self, unreader, buf, stop=False):
         data = unreader.read()
         if not data:
@@ -187,51 +194,55 @@ class Request(Message):
             raise NoMoreData(buf.getvalue())
         buf.write(data)
 
+    # done 处理请求行, 请求头, 返回请求体数据
     def parse(self, unreader):
         buf = io.BytesIO()
         self.get_data(unreader, buf, stop=True)
 
-        # get request line
+        # get request line, rbuf: 一行 \r\n 后面多余的数据
         line, rbuf = self.read_line(unreader, buf, self.limit_request_line)
 
-        # proxy protocol
+        # todo: proxy protocol
         if self.proxy_protocol(bytes_to_str(line)):
             # get next request line
             buf = io.BytesIO()
             buf.write(rbuf)
             line, rbuf = self.read_line(unreader, buf, self.limit_request_line)
 
+        # 处理请求行, 如: b'GET /test-db/1 HTTP/1.1'
         self.parse_request_line(line)
         buf = io.BytesIO()
         buf.write(rbuf)
 
-        # Headers
+        # data 如: b'Host: localhost:8000\r\nAccept: */*\r\n\r\na=1&b=2'
+        # 既包括请求头, 也包括请求体(a=1&b=2)
         data = buf.getvalue()
         idx = data.find(b"\r\n\r\n")
-
         done = data[:2] == b"\r\n"
         while True:
             idx = data.find(b"\r\n\r\n")
+            # todo: 什么时候data的前两位会是\r\n呢?
             done = data[:2] == b"\r\n"
-
             if idx < 0 and not done:
                 self.get_data(unreader, buf)
                 data = buf.getvalue()
                 if len(data) > self.max_buffer_headers:
                     raise LimitRequestHeaders("max buffer headers")
-            else:
+            else:  # idx >= 0 or done
                 break
 
         if done:
             self.unreader.unread(data[2:])
             return b""
 
+        # 请求头
         self.headers = self.parse_headers(data[:idx])
-
+        # 请求体
         ret = data[idx + 4:]
         buf = None
         return ret
 
+    # done
     def read_line(self, unreader, buf, limit=0):
         data = buf.getvalue()
 
@@ -239,17 +250,22 @@ class Request(Message):
             idx = data.find(b"\r\n")
             if idx >= 0:
                 # check if the request line is too large
+                # 这个limit默认值我也是醉了...
                 if idx > limit > 0:
                     raise LimitRequestLine(idx, limit)
+                # 循环读取, 直到出现 \r\n
                 break
             if len(data) - 2 > limit > 0:
                 raise LimitRequestLine(len(data), limit)
+            # 否则继续读取数据
             self.get_data(unreader, buf)
             data = buf.getvalue()
 
-        return (data[:idx],  # request line,
+        # 读取到的数据可能如 abc \r\n def
+        return (data[:idx],      # request line,
                 data[idx + 2:])  # residue in the buffer, skip \r\n
 
+    # done
     def proxy_protocol(self, line):
         """\
         Detect, check and parse proxy protocol.
@@ -259,34 +275,34 @@ class Request(Message):
         """
         if not self.cfg.proxy_protocol:
             return False
-
         if self.req_number != 1:
             return False
-
         if not line.startswith("PROXY"):
             return False
 
         self.proxy_protocol_access_check()
         self.parse_proxy_protocol(line)
-
         return True
 
+    # done
     def proxy_protocol_access_check(self):
         # check in allow list
-        if isinstance(self.unreader, SocketUnreader):
-            try:
-                remote_host = self.unreader.sock.getpeername()[0]
-            except socket.error as e:
-                if e.args[0] == ENOTCONN:
-                    raise ForbiddenProxyRequest("UNKNOW")
-                raise
-            if ("*" not in self.cfg.proxy_allow_ips and
-                    remote_host not in self.cfg.proxy_allow_ips):
-                raise ForbiddenProxyRequest(remote_host)
+        if not isinstance(self.unreader, SocketUnreader):
+            return
+        try:
+            remote_host = self.unreader.sock.getpeername()[0]
+        except socket.error as e:
+            if e.args[0] == ENOTCONN:  # Transport endpoint is not connected
+                raise ForbiddenProxyRequest("UNKNOW")
+            raise
+        _ips = self.cfg.proxy_allow_ips
+        if "*" not in  _ips and remote_host not in _ips:
+            raise ForbiddenProxyRequest(remote_host)
 
+    # done
     def parse_proxy_protocol(self, line):
+        # PROXY 协议栈 源IP 目的IP 源端口 目的端口rn
         bits = line.split()
-
         if len(bits) != 6:
             raise InvalidProxyLine(line)
 
@@ -329,19 +345,17 @@ class Request(Message):
             "proxy_port": d_port
         }
 
+    # done: 处理请求行, 如: b'GET /books/1 HTTP/1.1'
     def parse_request_line(self, line_bytes):
         bits = [bytes_to_str(bit) for bit in line_bytes.split(None, 2)]
         if len(bits) != 3:
             raise InvalidRequestLine(bytes_to_str(line_bytes))
 
-        # Method
         if not METH_RE.match(bits[0]):
             raise InvalidRequestMethod(bits[0])
         self.method = bits[0].upper()
 
-        # URI
         self.uri = bits[1]
-
         try:
             parts = split_request_uri(self.uri)
         except ValueError:
@@ -350,7 +364,7 @@ class Request(Message):
         self.query = parts.query or ""
         self.fragment = parts.fragment or ""
 
-        # Version
+        # HTTP Version
         match = VERSION_RE.match(bits[2])
         if match is None:
             raise InvalidHTTPVersion(bits[2])
@@ -359,4 +373,5 @@ class Request(Message):
     def set_body_reader(self):
         super().set_body_reader()
         if isinstance(self.body.reader, EOFReader):
+            # todo EOFReader 转换成 0 LengthReader why?
             self.body = Body(LengthReader(self.unreader, 0))

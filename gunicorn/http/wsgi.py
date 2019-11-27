@@ -38,6 +38,7 @@ class FileWrapper(object):
         raise IndexError
 
 
+# done: 包装了一个IO, 可以将错误日志发的handlers
 class WSGIErrorsWrapper(io.RawIOBase):
 
     def __init__(self, cfg):
@@ -50,7 +51,7 @@ class WSGIErrorsWrapper(io.RawIOBase):
 
         if cfg.errorlog == "-":
             self.streams.append(sys.stderr)
-            handlers = handlers[1:]
+            handlers = handlers[1:]  # 意思是第一个handler输出到了stderr
 
         for h in handlers:
             if hasattr(h, "stream"):
@@ -65,6 +66,7 @@ class WSGIErrorsWrapper(io.RawIOBase):
             stream.flush()
 
 
+# done
 def base_environ(cfg):
     return {
         "wsgi.errors": WSGIErrorsWrapper(cfg),
@@ -72,12 +74,13 @@ def base_environ(cfg):
         "wsgi.multithread": False,
         "wsgi.multiprocess": (cfg.workers > 1),
         "wsgi.run_once": False,
-        "wsgi.file_wrapper": FileWrapper,
+        "wsgi.file_wrapper": FileWrapper,           # todo
         "wsgi.input_terminated": True,
         "SERVER_SOFTWARE": SERVER_SOFTWARE,
     }
 
 
+# done
 def default_environ(req, sock, cfg):
     env = base_environ(cfg)
     env.update({
@@ -203,6 +206,7 @@ class Response(object):
         self.headers = []
         self.headers_sent = False
         self.response_length = None
+        # 已发送数据长度
         self.sent = 0
         self.upgrade = False
         self.cfg = cfg

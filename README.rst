@@ -1,4 +1,4 @@
-Gunicorn 源码阅读
+Gunicorn 源码分析
 -----------------
 
 阅读Gunicorn源码, 添加了很多注释和todo, 当然也有很多不清楚的地方. 希望在弄懂Gunicorn整体

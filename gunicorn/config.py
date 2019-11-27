@@ -830,6 +830,7 @@ class LimitRequestLine(Setting):
         """
 
 
+# done
 class LimitRequestFields(Setting):
     name = "limit_request_fields"
     section = "Security"
@@ -848,6 +849,7 @@ class LimitRequestFields(Setting):
         """
 
 
+# done
 class LimitRequestFieldSize(Setting):
     name = "limit_request_field_size"
     section = "Security"
@@ -1184,6 +1186,7 @@ class TmpUploadDir(Setting):
         """
 
 
+# done
 class SecureSchemeHeader(Setting):
     name = "secure_scheme_headers"
     section = "Server Mechanics"
@@ -1210,6 +1213,7 @@ class SecureSchemeHeader(Setting):
         """
 
 
+# done
 class ForwardedAllowIPS(Setting):
     name = "forwarded_allow_ips"
     section = "Server Mechanics"

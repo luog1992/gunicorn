@@ -10,12 +10,14 @@ from gunicorn.http.errors import (NoMoreData, ChunkMissingTerminator,
                                   InvalidChunkSize)
 
 
+# done NB啊, 使用生成器方式实现了连续读取chunked请求体数据(直到数据传输完毕)
 class ChunkedReader(object):
     def __init__(self, req, unreader):
         self.req = req
         self.parser = self.parse_chunked(unreader)
         self.buf = io.BytesIO()
 
+    # done
     def read(self, size):
         if not isinstance(size, int):
             raise TypeError("size must be an integral type")
@@ -38,6 +40,7 @@ class ChunkedReader(object):
         self.buf.write(rest)
         return ret
 
+    # todo: 很奇怪, trailer 不就是个 \r\n 么, 为什么搞这么复杂?
     def parse_trailers(self, unreader, data):
         buf = io.BytesIO()
         buf.write(data)
@@ -51,32 +54,42 @@ class ChunkedReader(object):
         if done:
             unreader.unread(buf.getvalue()[2:])
             return b""
+        # todo: 也即chunk数据块中也可以传类似headers的数据?
         self.req.trailers = self.req.parse_headers(buf.getvalue()[:idx])
         unreader.unread(buf.getvalue()[idx + 4:])
 
+    # 生成器
     def parse_chunked(self, unreader):
-        (size, rest) = self.parse_chunk_size(unreader)
+        size, rest = self.parse_chunk_size(unreader)
         while size > 0:
+            # 读取一个chunk中的数据直到差不多要读取完了
             while size > len(rest):
                 size -= len(rest)
                 yield rest
                 rest = unreader.read()
                 if not rest:
                     raise NoMoreData()
+            # 读取一个chunk中最后剩余的数据
             yield rest[:size]
             # Remove \r\n after chunk
             rest = rest[size:]
             while len(rest) < 2:
                 rest += unreader.read()
+            # 上一个chunk的结尾必然是 \r\n
             if rest[:2] != b'\r\n':
                 raise ChunkMissingTerminator(rest[:2])
-            (size, rest) = self.parse_chunk_size(unreader, data=rest[2:])
 
+            # 读取下一个chunk的数据
+            size, rest = self.parse_chunk_size(unreader, data=rest[2:])
+
+    # done
     def parse_chunk_size(self, unreader, data=None):
         buf = io.BytesIO()
         if data is not None:
             buf.write(data)
 
+        # chunk内容是16进制, 构成如: <len_of_chunk>\r\n<chunk_content>\r\n
+        # 最后一个chunk必须是 0\r\n<此处没有数据>\r\n
         idx = buf.getvalue().find(b"\r\n")
         while idx < 0:
             self.get_data(unreader, buf)
@@ -96,9 +109,10 @@ class ChunkedReader(object):
                 self.parse_trailers(unreader, rest_chunk)
             except NoMoreData:
                 pass
-            return (0, None)
-        return (chunk_size, rest_chunk)
+            return 0, None
+        return chunk_size, rest_chunk
 
+    # done
     def get_data(self, unreader, buf):
         data = unreader.read()
         if not data:
@@ -106,6 +120,7 @@ class ChunkedReader(object):
         buf.write(data)
 
 
+# done: 有Content-length长度的请求
 class LengthReader(object):
     def __init__(self, unreader, length):
         self.unreader = unreader
@@ -136,6 +151,7 @@ class LengthReader(object):
         return ret
 
 
+# done
 class EOFReader(object):
     def __init__(self, unreader):
         self.unreader = unreader
@@ -174,6 +190,7 @@ class EOFReader(object):
         return ret
 
 
+# done
 class Body(object):
     def __init__(self, reader):
         self.reader = reader
@@ -190,6 +207,7 @@ class Body(object):
 
     next = __next__
 
+    # done
     def getsize(self, size):
         if size is None:
             return sys.maxsize
@@ -199,6 +217,7 @@ class Body(object):
             return sys.maxsize
         return size
 
+    # done
     def read(self, size=None):
         size = self.getsize(size)
         if size == 0:
@@ -223,6 +242,7 @@ class Body(object):
         self.buf.write(rest)
         return ret
 
+    # done
     def readline(self, size=None):
         size = self.getsize(size)
         if size == 0:
@@ -234,6 +254,7 @@ class Body(object):
         ret = []
         while 1:
             idx = data.find(b"\n", 0, size)
+            # shit: 不要使用嵌套的if
             idx = idx + 1 if idx >= 0 else size if len(data) >= size else 0
             if idx:
                 ret.append(data[:idx])
@@ -248,6 +269,7 @@ class Body(object):
 
         return b"".join(ret)
 
+    # done
     def readlines(self, size=None):
         ret = []
         data = self.read()

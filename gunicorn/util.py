@@ -562,6 +562,7 @@ def make_fail_app(msg):
     return app
 
 
+# done
 def split_request_uri(uri):
     if uri.startswith("//"):
         # When the path starts with //, urlsplit considers it as a
