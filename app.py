@@ -15,8 +15,7 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import Column
 from sqlalchemy import func, text as _text
 
-# 全局变量, 用于测试并发请求会不会同时修改一个变量
-LIST = []
+TMP_LIST = []
 
 
 class Application(object):
@@ -24,10 +23,10 @@ class Application(object):
     def __call__(self, environ, start_fn):
         x = random.randint(1, 5)
         time.sleep(x)
-        LIST.append(x)
+        TMP_LIST.append(x)
         start_fn('200 OK', [('Content-Type', 'text/plain')])
-        msg = "PID=%s TID=%s LIST=%s" % (
-            os.getpid(), threading.current_thread().ident, LIST)
+        msg = "process=%s thread=%s TMP_LIST=%s" % (
+            os.getpid(), threading.current_thread().ident, TMP_LIST)
         return [msg.encode('utf-8')]
 
 
@@ -37,7 +36,7 @@ class TestDB(object):
 
     def commit(self, x):
         self.items.append(x)
-        print('Commit %s' % x)
+        # print('Commit %s' % x)
 
 
 flask_app = Flask(__name__)
@@ -56,10 +55,14 @@ class TestModel(sqla_db.Model):
     __tablename__ = 'test'
 
     id_ = Column('id', sqla_db.BigInteger, autoincrement=True, primary_key=True)
-    user_id = Column('user_id', sqla_db.BigInteger, nullable=False, server_default='0')
-    name = Column('name', sqla_db.VARCHAR(128), nullable=False, server_default='')
-    _type = Column('type', sqla_db.SmallInteger, nullable=False, server_default='0')
-    create_time = Column('create_time', sqla_db.TIMESTAMP, nullable=False, server_default=func.now())
+    user_id = Column(
+        'user_id', sqla_db.BigInteger, nullable=False, server_default='0')
+    name = Column(
+        'name', sqla_db.VARCHAR(128), nullable=False, server_default='')
+    _type = Column(
+        'type', sqla_db.SmallInteger, nullable=False, server_default='0')
+    create_time = Column('create_time', sqla_db.TIMESTAMP,
+                         nullable=False, server_default=func.now())
     update_time = Column(
         'update_time', sqla_db.TIMESTAMP, nullable=False,
         server_default=_text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'))
@@ -69,7 +72,7 @@ class TestModel(sqla_db.Model):
 def test_test_db(delta):
     test_db.commit(delta)
     time.sleep(delta)
-    msg = "PID=%s TID=%s LIST=%s" % (
+    msg = "process=%s thread=%s items=%s" % (
         os.getpid(), threading.current_thread().ident, test_db.items)
     return msg
 
@@ -79,7 +82,7 @@ def test_redis(delta):
     rd_key = 'gunicorn:test:multi:req:list'
     redis.lpush(rd_key, delta)
     time.sleep(delta)
-    msg = "PID=%s TID=%s LIST=%s" % (
+    msg = "process=%s thread=%s items=%s" % (
         os.getpid(), threading.current_thread().ident,
         redis.lrange(rd_key, 0, -1)
     )
@@ -93,7 +96,7 @@ def test_sqla(delta):
     time.sleep(delta)
     sqla_db.session.commit()
 
-    msg = "PID=%s TID=%s COUNT=%s" % (
+    msg = "process=%s thread=%s COUNT=%s" % (
         os.getpid(), threading.current_thread().ident,
         TestModel.query.count()
     )

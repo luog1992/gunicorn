@@ -977,6 +977,7 @@ class PreloadApp(Setting):
         """
 
 
+# done
 class Sendfile(Setting):
     name = "sendfile"
     section = "Server Mechanics"

@@ -18,6 +18,7 @@ import gunicorn.util as util
 # with sending files in blocks over 2GB.
 BLKSIZE = 0x3FFFFFFF
 
+# exclude control character, 就不能改成 BAD_HEADER_VALUE_RE 么
 HEADER_VALUE_RE = re.compile(r'[\x00-\x1F\x7F]')
 
 log = logging.getLogger(__name__)
@@ -94,6 +95,7 @@ def default_environ(req, sock, cfg):
     return env
 
 
+# done
 def proxy_environ(req):
     info = req.proxy_protocol_info
 
@@ -109,7 +111,53 @@ def proxy_environ(req):
     }
 
 
+# environ example
+"""
+{'HTTP_ACCEPT': 'text/html,application/xhtml+xml,application/xml',
+ 'HTTP_ACCEPT_ENCODING': 'gzip, deflate, br',
+ 'HTTP_ACCEPT_LANGUAGE': 'zh,en-US;q=0.9,en;q=0.8,zh-CN;q=0.7',
+ 'HTTP_CACHE_CONTROL': 'max-age=0',
+ 'HTTP_CONNECTION': 'keep-alive',
+ 'HTTP_COOKIE': 'Pycharm-209c82f=83317ddd-a999-436e-a535-3239a0441752',
+ 'HTTP_DNT': '1',
+ 'HTTP_HOST': 'localhost:8000',
+ 'HTTP_SEC_FETCH_MODE': 'navigate',
+ 'HTTP_SEC_FETCH_SITE': 'none',
+ 'HTTP_SEC_FETCH_USER': '?1',
+ 'HTTP_UPGRADE_INSECURE_REQUESTS': '1',
+ 'HTTP_USER_AGENT': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6)',
+ 'PATH_INFO': '/test-db/1',
+ 'QUERY_STRING': '',
+ 'RAW_URI': '/test-db/1',
+ 'REMOTE_ADDR': '127.0.0.1',
+ 'REMOTE_PORT': '56199',
+ 'REQUEST_METHOD': 'GET',
+ 'SCRIPT_NAME': '',
+ 'SERVER_NAME': '127.0.0.1',
+ 'SERVER_PORT': '8000',
+ 'SERVER_PROTOCOL': 'HTTP/1.1',
+ 'SERVER_SOFTWARE': 'gunicorn/20.0.0',
+ 'gunicorn.socket': <socket.socket fd=9, family=AddressFamily.AF_INET, type=SocketKind.SOCK_STREAM, proto=0, laddr=('127.0.0.1', 8000), raddr=('127.0.0.1', 56199)>,
+ 'wsgi.errors': <gunicorn.http.wsgi.WSGIErrorsWrapper object at 0x10e7484e0>,
+ 'wsgi.file_wrapper': <class 'gunicorn.http.wsgi.FileWrapper'>,
+ 'wsgi.input': <gunicorn.http.body.Body object at 0x10e7485f8>,
+ 'wsgi.input_terminated': True,
+ 'wsgi.multiprocess': False,
+ 'wsgi.multithread': False,
+ 'wsgi.run_once': False,
+ 'wsgi.url_scheme': 'http',
+ 'wsgi.version': (1, 0)}
+"""
+
+
+# done
 def create(req, sock, client, server, cfg):
+    """
+    :param req: ``.message.Request`` 请求
+    :param sock: client sock
+    :param client: client addr, e.g. ``('127.0.0.1', 10000)``
+    :param server: server sock, e.g. ``('127.0.0.1', 8000)``
+    """
     resp = Response(req, sock, cfg)
 
     # set initial environ
@@ -122,7 +170,7 @@ def create(req, sock, client, server, cfg):
     # add the headers to the environ
     for hdr_name, hdr_value in req.headers:
         if hdr_name == "EXPECT":
-            # handle expect
+            # https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Expect
             if hdr_value.lower() == "100-continue":
                 sock.send(b"HTTP/1.1 100 Continue\r\n\r\n")
         elif hdr_name == 'HOST':
@@ -137,6 +185,7 @@ def create(req, sock, client, server, cfg):
             environ['wsgi.input_terminated'] = False
             continue
 
+        # todo: 为啥要这么处理其他的请求头?
         key = 'HTTP_' + hdr_name.replace('-', '_')
         if key in environ:
             hdr_value = "%s,%s" % (environ[key], hdr_value)
@@ -147,8 +196,7 @@ def create(req, sock, client, server, cfg):
 
     # set the REMOTE_* keys in environ
     # authors should be aware that REMOTE_HOST and REMOTE_ADDR
-    # may not qualify the remote addr:
-    # http://www.ietf.org/rfc/rfc3875
+    # may not qualify the remote addr: http://www.ietf.org/rfc/rfc3875
     if isinstance(client, str):
         environ['REMOTE_ADDR'] = client
     elif isinstance(client, bytes):
@@ -198,33 +246,43 @@ class Response(object):
 
     def __init__(self, req, sock, cfg):
         self.req = req
-        self.sock = sock
+        self.sock = sock    # client
         self.version = SERVER_SOFTWARE
         self.status = None
+        self.status_code = None
         self.chunked = False
         self.must_close = False
         self.headers = []
         self.headers_sent = False
         self.response_length = None
-        # 已发送数据长度
-        self.sent = 0
+        self.sent = 0               # 已发送数据长度
+
+        # 是否upgrade连接. 连接可以以常用的协议启动（如HTTP/1.1），随后可通过upgrade
+        # 协商再升级到HTTP2甚至是WebSockets. 比如要升级成websocket, 请求头可能如:
+        # Connection: Upgrade
+        # Upgrade: websocket
+        # https://developer.mozilla.org/zh-CN/docs/Web/HTTP/Protocol_upgrade_mechanism
         self.upgrade = False
         self.cfg = cfg
 
+    # done
     def force_close(self):
         self.must_close = True
 
+    # done
     def should_close(self):
         if self.must_close or self.req.should_close():
             return True
         if self.response_length is not None or self.chunked:
             return False
+        # todo: HEAD 204 304 为啥是 False
         if self.req.method == 'HEAD':
             return False
         if self.status_code < 200 or self.status_code in (204, 304):
             return False
         return True
 
+    # done
     def start_response(self, status, headers, exc_info=None):
         if exc_info:
             try:
@@ -249,25 +307,26 @@ class Response(object):
         self.chunked = self.is_chunked()
         return self.write
 
+    # done
     def process_headers(self, headers):
         for name, value in headers:
             if not isinstance(name, str):
                 raise TypeError('%r is not a string' % name)
-
-            if HEADER_RE.search(name):
+            if HEADER_RE.search(name):  # bad header
                 raise InvalidHeaderName('%r' % name)
+            lname = name.lower().strip()
 
             if not isinstance(value, str):
                 raise TypeError('%r is not a string' % value)
-
-            if HEADER_VALUE_RE.search(value):
+            if HEADER_VALUE_RE.search(value):   # bad header value
                 raise InvalidHeader('%r' % value)
-
             value = value.strip()
-            lname = name.lower().strip()
+
             if lname == "content-length":
+                # 指定了content长度的请求
                 self.response_length = int(value)
             elif util.is_hoppish(name):
+                # 处理hop-by-hop请求头, 下面只处理了websocket的情况
                 if lname == "connection":
                     # handle websocket
                     if value.lower().strip() == "upgrade":
@@ -280,10 +339,10 @@ class Response(object):
                 continue
             self.headers.append((name.strip(), value))
 
+    # done
     def is_chunked(self):
-        # Only use chunked responses when the client is
-        # speaking HTTP/1.1 or newer and there was
-        # no Content-Length header set.
+        # Only use chunked responses when the client is speaking HTTP/1.1
+        # or newer and there was no Content-Length header set.
         if self.response_length is not None:
             return False
         elif self.req.version <= (1, 0):
@@ -297,6 +356,7 @@ class Response(object):
             return False
         return True
 
+    # done
     def default_headers(self):
         # set the connection header
         if self.upgrade:
@@ -317,6 +377,7 @@ class Response(object):
             headers.append("Transfer-Encoding: chunked\r\n")
         return headers
 
+    # done
     def send_headers(self):
         if self.headers_sent:
             return
@@ -327,33 +388,42 @@ class Response(object):
         util.write(self.sock, util.to_bytestring(header_str, "latin-1"))
         self.headers_sent = True
 
+    # done
     def write(self, arg):
         self.send_headers()
         if not isinstance(arg, bytes):
             raise TypeError('%r is not a byte' % arg)
-        arglen = len(arg)
-        tosend = arglen
+
+        total = len(arg)
+        remain = total
         if self.response_length is not None:
             if self.sent >= self.response_length:
                 # Never write more than self.response_length bytes
                 return
 
-            tosend = min(self.response_length - self.sent, tosend)
-            if tosend < arglen:
-                arg = arg[:tosend]
+            remain = min(self.response_length - self.sent, remain)
+            if remain < total:
+                arg = arg[:remain]
 
         # Sending an empty chunk signals the end of the
         # response and prematurely closes the response
-        if self.chunked and tosend == 0:
+        if self.chunked and remain == 0:
             return
 
-        self.sent += tosend
+        self.sent += remain
         util.write(self.sock, arg, self.chunked)
 
+    # done
     def can_sendfile(self):
         return self.cfg.sendfile is not False
 
+    # sendfile() copies data between one file descriptor and another.
+    # Because this copying is done within the kernel, sendfile() is more
+    # efficient than the combination of read(2) and write(2), which would
+    # require transferring data to and from user space.
     def sendfile(self, respiter):
+        # 如果是https, 不能使用sendfile, 因为数据需要加密
+        # https://stackoverflow.com/questions/50792406/issue-when-using-sendfile-with-ssl
         if self.cfg.is_ssl or not self.can_sendfile():
             return False
 
@@ -397,13 +467,17 @@ class Response(object):
 
         return True
 
+    # done
     def write_file(self, respiter):
         if not self.sendfile(respiter):
             for item in respiter:
                 self.write(item)
 
+    # done
     def close(self):
         if not self.headers_sent:
             self.send_headers()
         if self.chunked:
+            # Sending an empty chunk signals the end of the
+            # response and prematurely closes the response
             util.write_chunk(self.sock, b"")

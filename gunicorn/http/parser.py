@@ -32,8 +32,8 @@ class Parser(object):
 
         # Discard any unread body of the previous message
         if self.mesg:
-            # 对于有Content-length的请求, 接受所有数据(到body.buf)
-            # 对于chunked的请求, 也一直接受数据直到没有更多数据
+            # 对于有Content-length的请求, 读取所有数据(到body.buf)
+            # 对于chunked的请求, 也一直读取数据直到没有更多数据
             data = self.mesg.body.read(8192)
             while data:
                 data = self.mesg.body.read(8192)

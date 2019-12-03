@@ -46,8 +46,7 @@ class BaseSocket(object):
 
     def set_options(self, sock, bound=False):
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        if (self.conf.reuse_port
-            and hasattr(socket, 'SO_REUSEPORT')):  # pragma: no cover
+        if self.conf.reuse_port and hasattr(socket, 'SO_REUSEPORT'):
             try:
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
             except socket.error as err:
@@ -57,9 +56,15 @@ class BaseSocket(object):
                     raise
         if not bound:
             self.bind(sock)
+
+        # If no pending connections are present on the queue, and the socket
+        # is not marked as nonblocking, accept() blocks the caller until a
+        # connection is present. If the socket is marked nonblocking and no
+        # pending connections are present on the queue, accept() fails with
+        # the error EAGAIN or EWOULDBLOCK.
         sock.setblocking(0)     # set to non-blocking
 
-        # todo: 确定 inheritable (对worker)意味着啥? worker也可以监听相同的sock?
+        # todo: inheritable 意味着 worker 也可以监听相同的sock?
         # make sure that the socket can be inherited
         if hasattr(sock, "set_inheritable"):
             sock.set_inheritable(True)

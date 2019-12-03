@@ -40,9 +40,8 @@ REDIRECT_TO = getattr(os, 'devnull', '/dev/null')
 # dropping them is easier.
 hop_headers = set("""
     connection keep-alive proxy-authenticate proxy-authorization
-    te trailers transfer-encoding upgrade
-    server date
-    """.split())
+    te trailers transfer-encoding upgrade server date""".split()
+)
 
 try:
     from setproctitle import setproctitle
@@ -267,6 +266,7 @@ def set_non_blocking(fd):
     fcntl.fcntl(fd, fcntl.F_SETFL, flags)
 
 
+# done
 def close(sock):
     try:
         sock.close()
@@ -285,7 +285,9 @@ except ImportError:
                 pass
 
 
+# done
 def write_chunk(sock, data):
+    # 如果chunk, 请求体的构成是: ``<size>\r\n<data>\r\n``
     if isinstance(data, str):
         data = data.encode('utf-8')
     chunk_size = "%X\r\n" % len(data)
@@ -293,12 +295,14 @@ def write_chunk(sock, data):
     sock.sendall(chunk)
 
 
+# done
 def write(sock, data, chunked=False):
     if chunked:
         return write_chunk(sock, data)
     sock.sendall(data)
 
 
+# todo
 def write_nonblock(sock, data, chunked=False):
     timeout = sock.gettimeout()
     if timeout != 0.0:
@@ -311,6 +315,7 @@ def write_nonblock(sock, data, chunked=False):
         return write(sock, data, chunked)
 
 
+# done
 def write_error(sock, status_int, reason, mesg):
     html_error = textwrap.dedent("""\
     <html>
@@ -381,8 +386,12 @@ def getcwd():
     return cwd
 
 
+# done
 def http_date(timestamp=None):
-    """Return the current date and time formatted for a message header."""
+    """Return the current date and time formatted for a message header.
+
+    e.g.: ``date: Tue, 03 Dec 2019 05:32:08 GMT``
+    """
     if timestamp is None:
         timestamp = time.time()
     s = email.utils.formatdate(timestamp, localtime=False, usegmt=True)
@@ -390,6 +399,14 @@ def http_date(timestamp=None):
 
 
 def is_hoppish(header):
+    """
+    https://developer.mozilla.org/zh-CN/docs/Web/HTTP/Headers/Connection
+
+    除了标准的逐段传输（hop-by-hop）头（Keep-Alive, Transfer-Encoding, TE,
+    Connection, Trailer, Upgrade, Proxy-Authorization and Proxy-Authenticate),
+    任何其他的逐段传输头都需要在 Connection 头中列出，这样才能让第一个代理知道必须处理它们且
+    不转发这些头。标准的逐段传输头也可以列出（常见的例子是 Keep-Alive，但这不是必须的）。
+    """
     return header.lower().strip() in hop_headers
 
 
@@ -522,6 +539,7 @@ def to_bytestring(value, encoding="utf8"):
     return value.encode(encoding)
 
 
+# done
 def has_fileno(obj):
     if not hasattr(obj, "fileno"):
         return False

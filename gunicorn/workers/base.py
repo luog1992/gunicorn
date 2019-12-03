@@ -51,33 +51,38 @@ class Worker(object):
         self.app = app
         self.timeout = timeout
         self.cfg = cfg
+
         # 是否已启动
         self.booted = False
         # master.murder_workers 中会修改 aborted, 但是好像其他地方没有使用
         self.aborted = False
-        self.reloader = None
-
+        # worker是否alive, 当not alive时, (一般)run中的main loop会退出
+        self.alive = True
+        # num of requests
         self.nr = 0
 
+        self.reloader = None
+
+        # The maximum number of requests a worker will process before restarting
+        # This is a simple method to help limit the damage of memory leaks.
         if cfg.max_requests > 0:
             jitter = randint(0, cfg.max_requests_jitter)
             self.max_requests = cfg.max_requests + jitter
         else:
             self.max_requests = sys.maxsize
 
-        self.alive = True
         self.log = log
-        # 用于worker的health check
-        self.tmp = WorkerTmp(cfg)
-
         logger = logging.getLogger(__name__)
         logger.addHandler(logging.StreamHandler(sys.stdout))
         self.logger = logger
 
+        # 用于worker的health check
+        self.tmp = WorkerTmp(cfg)
+
     def __str__(self):
         return "<Worker %s>" % self.pid
 
-    # done: call ``notify`` every ``self.timeout`` 以便master认为worker还活着
+    # done: notify every timeout seconds 以便master认为worker还活着
     def notify(self):
         """\
         Your worker subclass must arrange to have this method called
@@ -111,8 +116,7 @@ class Worker(object):
                 os.environ[k] = v
 
         # 设置进程所属user group
-        util.set_owner_process(self.cfg.uid, self.cfg.gid,
-                               initgroups=self.cfg.initgroups)
+        util.set_owner_process(self.cfg.uid, self.cfg.gid, self.cfg.initgroups)
 
         # Reseed the random number generator
         util.seed()
@@ -178,9 +182,9 @@ class Worker(object):
             self.log.exception(e)
 
             # fix from PR #1228
-            # storing the traceback into exc_tb will create a circular reference.
-            # per https://docs.python.org/2/library/sys.html#sys.exc_info warning,
-            # delete the traceback after use.
+            # store the traceback into exc_tb will create a circular reference.
+            # per https://docs.python.org/2/library/sys.html#sys.exc_info
+            # warning, delete the traceback after use.
             try:
                 _, exc_val, exc_tb = sys.exc_info()
                 self.reloader.add_extra_file(exc_val.filename)
@@ -206,32 +210,33 @@ class Worker(object):
         signal.signal(signal.SIGUSR1, self.handle_usr1)
         signal.signal(signal.SIGABRT, self.handle_abort)
 
-        # todo: 测试关闭gunicorn时候, worker如何处理处理中的request
         # Don't let SIGTERM and SIGUSR1 disturb active requests
         # by interrupting system calls
-        # todo: 看不懂 siginterrupt 函数
+
         # If the flag argument is false then system calls will
         # be restarted if interrupted by the specified signal.
         # 当worker收到SIGTERM SIGUSR1时, 不会立马退出时, 而是等到请求
-        # 处理完以后再退出, 也即暂时忽略了SIGTERM(?) 那么worker进程又
-        # 是如何知道啥时该退出了呢?(请求处理完?), 参见 log_term_worker.log
+        # 处理完以后再退出, 也即暂时忽略了SIGTERM(?) 那么worker又是如何
+        # 知道啥时该退出了呢?(请求处理完?), 参见 :file:`log_term_worker.log`
         signal.siginterrupt(signal.SIGTERM, False)
         signal.siginterrupt(signal.SIGUSR1, False)
 
         if hasattr(signal, 'set_wakeup_fd'):
             signal.set_wakeup_fd(self.PIPE[1])
 
+    # todo
     def handle_usr1(self, sig, frame):
         self._log('handle_usr1: %s' % sig)
         self.log.reopen_files()
 
+    # done
     def handle_exit(self, sig, frame):
         self._log('handle_exit: %s' % sig)
         self.alive = False
 
     # todo: 当Ctrl-C的时候, worker会收到sig=SIGINT, 然后master进程
     #  在收到SIGINT后会kill_worker, 也会触发该方法, 此时sig=SIGQUIT,
-    #  所以问题是: 该方法会被调用2次!?
+    #  所以问题是: 该方法会被调用2次!? 参见 :file:`log_ctrl_c.log`
     def handle_quit(self, sig, frame):
         self._log('handle_quit: %s sys.exit(0)' % sig)
         self.alive = False
@@ -240,22 +245,25 @@ class Worker(object):
         time.sleep(0.1)
         sys.exit(0)
 
+    # done
     def handle_abort(self, sig, frame):
         self._log('handle_abort: %s & sys.exit(1)' % sig)
         self.alive = False
         self.cfg.worker_abort(self)
         sys.exit(1)
 
+    # done
     def handle_error(self, req, client, addr, exc):
-        self._log('handle_error')
+        self._log('handle_error %s' % str(exc))
         request_start = datetime.now()
         addr = addr or ('', -1)  # unix socket case
-        if isinstance(exc, (InvalidRequestLine, InvalidRequestMethod,
-                InvalidHTTPVersion, InvalidHeader, InvalidHeaderName,
-                LimitRequestLine, LimitRequestHeaders,
-                InvalidProxyLine, ForbiddenProxyRequest,
-                InvalidSchemeHeaders,
-                SSLError)):
+        if isinstance(exc, (
+            InvalidRequestLine, InvalidRequestMethod,
+            InvalidHTTPVersion, InvalidHeader, InvalidHeaderName,
+            LimitRequestLine, LimitRequestHeaders,
+            InvalidProxyLine, ForbiddenProxyRequest,
+            InvalidSchemeHeaders, SSLError
+        )):
 
             status_int = 400
             reason = "Bad Request"
@@ -311,6 +319,7 @@ class Worker(object):
         except:
             self.log.debug("Failed to send error message.")
 
+    # done
     def handle_winch(self, sig, fname):
         # Ignore SIGWINCH in worker. Fixes a crash on OpenBSD.
         self._log('handle_winch: %s' % sig)

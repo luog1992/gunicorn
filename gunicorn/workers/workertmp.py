@@ -46,9 +46,11 @@ class WorkerTmp(object):
         self.spinner = 0
 
     def notify(self):
-        # todo: 为什么要周期性的 chmod ?
-        # ``0`` stat.S_IFPORT: Event port??
-        # ``1`` stat.S_IXOTH: others have execute permission
+        # 为什么要周期性的 chmod ? 发现只有在单元测试中使用了 `self.tmp.write`
+        # chmod 会更新文件的时间戳, master 就是使用时间戳来判断 worker 有无超时
+
+        # ``0`` stat.S_IFPORT: 任何人没有任何权限
+        # ``1`` stat.S_IXOTH: others有可执行权限
         self.spinner = (self.spinner + 1) % 2
         os.fchmod(self._tmp.fileno(), self.spinner)
 

@@ -767,7 +767,6 @@ class Arbiter(object):
             sys.stderr.flush()
             sys.exit(self.APP_LOAD_ERROR)
         except Exception as e:
-            # woker.init_process中因为修改代码而reload时, 不会运行到这儿
             worker._log('spawn_worker except %s' % e)
             self.log.exception("Exception in worker process")
             if not worker.booted:
