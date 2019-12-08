@@ -68,6 +68,16 @@ class TestModel(sqla_db.Model):
         server_default=_text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'))
 
 
+@flask_app.route('/ping')
+def ping():
+    return 'pong'
+
+
+@flask_app.route('/user/num')
+def get_user_num():
+    return 'user_num=%s' % TestModel.query.count()
+
+
 @flask_app.route('/test-db/<int:delta>')
 def test_test_db(delta):
     test_db.commit(delta)

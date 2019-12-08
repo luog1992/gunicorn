@@ -433,6 +433,7 @@ class Arbiter(object):
         """
         # self._log('sleep')
         try:
+            # self.PIPE[0] 是non-blocking, 周期性地查询看有无数据
             ready = select.select([self.PIPE[0]], [], [], 1.0)
             # 如果ready, ready[0] == [self.PIPE[0]], 否则 == []
             if not ready[0]:

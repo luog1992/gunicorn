@@ -11,6 +11,12 @@
 # closed.
 # pylint: disable=no-else-break
 
+"""
+简单测试了一下, 开4个worker, 每个worker中开5个线程, 然后压测 /user/num:
+Requests per second:    421.29 [#/sec] (mean)
+Time per request:       23.737 [ms] (mean)
+"""
+
 import concurrent.futures as futures
 import errno
 import os
@@ -34,12 +40,12 @@ class TConn(object):
 
     def __init__(self, cfg, sock, client, server):
         self.cfg = cfg
-        self.sock = sock
-        self.client = client
-        self.server = server
+        self.sock = sock        # client sock
+        self.client = client    # client addr
+        self.server = server    # server addr
 
         self.timeout = None
-        self.parser = None
+        self.parser = None      # http.RequestParser
 
         # set the socket to non blocking
         self.sock.setblocking(False)
@@ -49,14 +55,14 @@ class TConn(object):
         if self.parser is None:
             # wrap the socket if needed
             if self.cfg.is_ssl:
-                self.sock = ssl.wrap_socket(self.sock, server_side=True,
-                        **self.cfg.ssl_options)
-
+                self.sock = ssl.wrap_socket(
+                    self.sock, server_side=True, **self.cfg.ssl_options
+                )
             # initialize the parser
             self.parser = http.RequestParser(self.cfg, self.sock)
 
     def set_timeout(self):
-        # set the timeout
+        # set the timeout, 默认超时时间 2s
         self.timeout = time.time() + self.cfg.keepalive
 
     def close(self):
@@ -67,14 +73,16 @@ class ThreadWorker(base.Worker):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # 最大并发连接数, default 1000
         self.worker_connections = self.cfg.worker_connections
+        # todo: max_keepalived 为什么这么算?
         self.max_keepalived = self.cfg.worker_connections - self.cfg.threads
         # initialise the pool
         self.tpool = None
         self.poller = None
         self._lock = None
         self.futures = deque()
-        self._keep = deque()
+        self._keep = deque()        # keepalived connections
         self.nr_conns = 0
 
     @classmethod
@@ -82,38 +90,46 @@ class ThreadWorker(base.Worker):
         max_keepalived = cfg.worker_connections - cfg.threads
 
         if max_keepalived <= 0 and cfg.keepalive:
-            log.warning("No keepalived connections can be handled. " +
-                    "Check the number of worker connections and threads.")
+            log.warning("No keepalived connections can be handled. "
+                        "Check the number of worker connections and threads.")
 
+    # done: 线程池 poller
     def init_process(self):
-        self.tpool = self.get_thread_pool()
+        self.tpool = self.get_thread_pool()         # 默认 1 个线程
         self.poller = selectors.DefaultSelector()
         self._lock = RLock()
         super().init_process()
 
+    # done
     def get_thread_pool(self):
         """Override this method to customize how the thread pool is created"""
+        self._log('get_thread_pool size=%s' % self.cfg.threads)
         return futures.ThreadPoolExecutor(max_workers=self.cfg.threads)
 
+    # done
     def handle_quit(self, sig, frame):
         self.alive = False
         # worker_int callback
         self.cfg.worker_int(self)
         self.tpool.shutdown(False)
+        # self.poller 不 close?
         time.sleep(0.1)
         sys.exit(0)
 
+    # done
     def _wrap_future(self, fs, conn):
         fs.conn = conn
         self.futures.append(fs)
         fs.add_done_callback(self.finish_request)
 
+    # done
     def enqueue_req(self, conn):
         conn.init()
         # submit the connection to a worker
         fs = self.tpool.submit(self.handle, conn)
         self._wrap_future(fs, conn)
 
+    # done 接受conn, 并放到tpool
     def accept(self, server, listener):
         try:
             sock, client = listener.accept()
@@ -127,20 +143,7 @@ class ThreadWorker(base.Worker):
                     errno.ECONNABORTED, errno.EWOULDBLOCK):
                 raise
 
-    def reuse_connection(self, conn, client):
-        with self._lock:
-            # unregister the client from the poller
-            self.poller.unregister(client)
-            # remove the connection from keepalive
-            try:
-                self._keep.remove(conn)
-            except ValueError:
-                # race condition
-                return
-
-        # submit the connection to a worker
-        self.enqueue_req(conn)
-
+    # done: kill 超时的 sock
     def murder_keepalived(self):
         now = time.time()
         while True:
@@ -173,6 +176,7 @@ class ThreadWorker(base.Worker):
                 # close the socket
                 conn.close()
 
+    # done
     def is_parent_alive(self):
         # If our parent changed then we shut down.
         if self.ppid != os.getppid():
@@ -186,7 +190,7 @@ class ThreadWorker(base.Worker):
             sock.setblocking(False)
             # a race condition during graceful shutdown may make the listener
             # name unavailable in the request handler so capture it once here
-            server = sock.getsockname()
+            server = sock.getsockname()  # e.g. ('127.0.0.1', 1234)
             acceptor = partial(self.accept, server)
             self.poller.register(sock, selectors.EVENT_READ, acceptor)
 
@@ -199,8 +203,8 @@ class ThreadWorker(base.Worker):
                 # wait for an event
                 events = self.poller.select(1.0)
                 for key, _ in events:
-                    callback = key.data
-                    callback(key.fileobj)
+                    callback = key.data     # key.data=acceptor
+                    callback(key.fileobj)   # key.fileobj=listener
 
                 # check (but do not wait) for finished requests
                 result = futures.wait(self.futures, timeout=0,
@@ -228,6 +232,7 @@ class ThreadWorker(base.Worker):
 
         futures.wait(self.futures, timeout=self.cfg.graceful_timeout)
 
+    # done: 对于 keepalived 的连接, reuse_connection
     def finish_request(self, fs):
         if fs.cancelled():
             self.nr_conns -= 1
@@ -235,18 +240,17 @@ class ThreadWorker(base.Worker):
             return
 
         try:
+            # fs.result() 是 self.handle 的返回值
             (keepalive, conn) = fs.result()
             # if the connection should be kept alived add it
             # to the eventloop and record it
             if keepalive:
                 # flag the socket as non blocked
                 conn.sock.setblocking(False)
-
                 # register the connection
                 conn.set_timeout()
                 with self._lock:
                     self._keep.append(conn)
-
                     # add the socket to the event loop
                     self.poller.register(conn.sock, selectors.EVENT_READ,
                             partial(self.reuse_connection, conn))
@@ -254,26 +258,44 @@ class ThreadWorker(base.Worker):
                 self.nr_conns -= 1
                 conn.close()
         except:
-            # an exception happened, make sure to close the
-            # socket.
+            # todo: 不应该记录日志么
+            # make sure to close the socket
             self.nr_conns -= 1
             fs.conn.close()
 
+    # done: keepalived 连接不会关闭, 可以发送多个请求, 故称为 reuse_connection
+    def reuse_connection(self, conn, client):
+        with self._lock:
+            # finish_request 中会将 client sock 注册到 poller
+            # unregister the client from the poller
+            self.poller.unregister(client)
+            # remove the connection from keepalive
+            try:
+                self._keep.remove(conn)
+            except ValueError:
+                # race condition
+                return
+
+        # submit the connection to a worker
+        self.enqueue_req(conn)
+
+    # done
     def handle(self, conn):
         keepalive = False
         req = None
         try:
             req = next(conn.parser)
             if not req:
-                return (False, conn)
+                return False, conn
 
             # handle the request
             keepalive = self.handle_request(req, conn)
             if keepalive:
-                return (keepalive, conn)
+                return keepalive, conn
+
+        # todo: 下面的逻辑和sync worker是一样的...
         except http.errors.NoMoreData as e:
             self.log.debug("Ignored premature client disconnection. %s", e)
-
         except StopIteration as e:
             self.log.debug("Closing connection. %s", e)
         except ssl.SSLError as e:
@@ -283,7 +305,6 @@ class ThreadWorker(base.Worker):
             else:
                 self.log.debug("Error processing SSL request.")
                 self.handle_error(req, conn.sock, conn.client, e)
-
         except EnvironmentError as e:
             if e.errno not in (errno.EPIPE, errno.ECONNRESET):
                 self.log.exception("Socket error processing request.")
@@ -295,20 +316,21 @@ class ThreadWorker(base.Worker):
         except Exception as e:
             self.handle_error(req, conn.sock, conn.client, e)
 
-        return (False, conn)
+        return False, conn
 
+    # done
     def handle_request(self, req, conn):
         environ = {}
         resp = None
         try:
             self.cfg.pre_request(self, req)
             request_start = datetime.now()
-            resp, environ = wsgi.create(req, conn.sock, conn.client,
-                    conn.server, self.cfg)
+            resp, environ = wsgi.create(
+                req, conn.sock, conn.client, conn.server, self.cfg)
             environ["wsgi.multithread"] = True
             self.nr += 1
             if self.alive and self.nr >= self.max_requests:
-                self.log.info("Autorestarting worker after current request.")
+                self.log.info("Auto restarting worker after current request.")
                 resp.force_close()
                 self.alive = False
 
@@ -317,6 +339,7 @@ class ThreadWorker(base.Worker):
             elif len(self._keep) >= self.max_keepalived:
                 resp.force_close()
 
+            # todo: 下面的逻辑和sync worker是一样的...
             respiter = self.wsgi(environ, resp.start_response)
             try:
                 if isinstance(respiter, environ['wsgi.file_wrapper']):

@@ -149,6 +149,7 @@ class SyncWorker(base.Worker):
             # 解析HTTP报文得到一个请求对象, 会处理请求行, headers, 请求体
             req = next(parser)
             self.handle_request(listener, req, client, addr)
+
         except http.errors.NoMoreData as e:
             self._log("handle Ignored premature client disconnection. %s" % e)
         except StopIteration as e:

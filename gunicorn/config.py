@@ -665,6 +665,7 @@ class WorkerClass(Setting):
         """
 
 
+# done
 class WorkerThreads(Setting):
     name = "threads"
     section = "Worker Processes"
@@ -693,6 +694,7 @@ class WorkerThreads(Setting):
         """
 
 
+# done
 class WorkerConnections(Setting):
     name = "worker_connections"
     section = "Worker Processes"
