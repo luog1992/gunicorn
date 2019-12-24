@@ -21,15 +21,17 @@ class AsyncWorker(base.Worker):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # The maximum number of simultaneous clients, 默认1000
         self.worker_connections = self.cfg.worker_connections
 
     def timeout_ctx(self):
         raise NotImplementedError()
 
     def is_already_handled(self, respiter):
-        # some workers will need to overload this function to raise a StopIteration
+        # some workers need to overload this function to raise a StopIteration
         return respiter == ALREADY_HANDLED
 
+    # done
     def handle(self, listener, client, addr):
         req = None
         try:
@@ -42,6 +44,7 @@ class AsyncWorker(base.Worker):
                 else:
                     # keepalive loop
                     proxy_protocol_info = {}
+                    # 相比于 gthread worker, 此处一直循环读取请求并处理
                     while True:
                         req = None
                         with self.timeout_ctx():
@@ -65,6 +68,7 @@ class AsyncWorker(base.Worker):
                 util.reraise(*sys.exc_info())
             except Exception as e:
                 self.handle_error(req, client, addr, e)
+
         except ssl.SSLError as e:
             if e.args[0] == ssl.SSL_ERROR_EOF:
                 self.log.debug("ssl connection closed")
@@ -85,6 +89,7 @@ class AsyncWorker(base.Worker):
         finally:
             util.close(client)
 
+    # done: 怎么又几乎和sync worker中的一模一样
     def handle_request(self, listener_name, req, sock, addr):
         request_start = datetime.now()
         environ = {}

@@ -591,6 +591,9 @@ class Bind(Setting):
         """
 
 
+# done
+# https://stackoverflow.com/questions/36594400/what-is-backlog-in-tcp-connections
+# http://veithen.io/2014/01/01/how-tcp-backlog-works-in-linux.html
 class Backlog(Setting):
     name = "backlog"
     section = "Server Socket"

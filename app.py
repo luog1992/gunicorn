@@ -9,7 +9,7 @@ import time
 import random
 import threading
 
-from flask import Flask
+from flask import Flask, request, g
 from flask_redis import FlaskRedis
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import Column
@@ -69,7 +69,9 @@ class TestModel(sqla_db.Model):
 
 
 @flask_app.route('/ping')
-def ping():
+@flask_app.route('/ping/<int:delta>')
+def ping(delta=0):
+    time.sleep(delta)
     return 'pong'
 
 

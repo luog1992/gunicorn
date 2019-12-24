@@ -36,9 +36,11 @@ def _gevent_sendfile(fdout, fdin, offset, nbytes):
             return os.sendfile(fdout, fdin, offset, nbytes)
         except OSError as e:
             if e.args[0] == errno.EAGAIN:
+                # Block the current greenlet until *fileno* is ready to write
                 socket.wait_write(fdout)
             else:
                 raise
+
 
 def patch_sendfile():
     setattr(os, "sendfile", _gevent_sendfile)
@@ -49,6 +51,7 @@ class GeventWorker(AsyncWorker):
     server_class = None
     wsgi_handler = None
 
+    # done monkey patch & patch sockets
     def patch(self):
         monkey.patch_all()
 
@@ -79,7 +82,9 @@ class GeventWorker(AsyncWorker):
             ssl_args = dict(server_side=True, **self.cfg.ssl_options)
 
         for s in self.sockets:
-            s.setblocking(1)
+            # todo: 为什么要设置成blocking
+            s.setblocking(True)
+            # pool: Maintain a group of greenlets
             pool = Pool(self.worker_connections)
             if self.server_class is not None:
                 environ = base_environ(self.cfg)
@@ -90,7 +95,8 @@ class GeventWorker(AsyncWorker):
                 server = self.server_class(
                     s, application=self.wsgi, spawn=pool, log=self.log,
                     handler_class=self.wsgi_handler, environ=environ,
-                    **ssl_args)
+                    **ssl_args
+                )
             else:
                 hfun = partial(self.handle, s)
                 server = StreamServer(s, handle=hfun, spawn=pool, **ssl_args)
@@ -156,8 +162,13 @@ class GeventWorker(AsyncWorker):
         # by deferring to a new greenlet. See #1645
         gevent.spawn(super().handle_usr1, sig, frame)
 
+    # done
     def init_process(self):
         self.patch()
+
+        # prepare the gevent hub to run in a new (forked) process.
+        # This should be called immediately after :func:`os.fork`
+        # in the child process.
         hub.reinit()
         super().init_process()
 
@@ -200,6 +211,6 @@ class PyWSGIServer(pywsgi.WSGIServer):
 
 
 class GeventPyWSGIWorker(GeventWorker):
-    "The Gevent StreamServer based workers."
+    """The Gevent StreamServer based workers."""
     server_class = PyWSGIServer
     wsgi_handler = PyWSGIHandler

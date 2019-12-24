@@ -203,8 +203,11 @@ class ThreadWorker(base.Worker):
                 # wait for an event
                 events = self.poller.select(1.0)
                 for key, _ in events:
-                    callback = key.data     # key.data=acceptor
-                    callback(key.fileobj)   # key.fileobj=listener
+                    # e.g. 对于服务器sock来说, key.data -> acceptor
+                    # key.fileobj -> listener fd描述符
+                    # 调用的时候就是调用self.accept接受请求
+                    callback = key.data
+                    callback(key.fileobj)
 
                 # check (but do not wait) for finished requests
                 result = futures.wait(self.futures, timeout=0,
@@ -215,6 +218,8 @@ class ThreadWorker(base.Worker):
                         return_when=futures.FIRST_COMPLETED)
 
             # clean up finished requests
+            # self._wrap_future会将处理conn时产生的 future
+            # 对象放入self.futures; 当请求处理完毕后, remove
             for fut in result.done:
                 self.futures.remove(fut)
 
@@ -234,6 +239,7 @@ class ThreadWorker(base.Worker):
 
     # done: 对于 keepalived 的连接, reuse_connection
     def finish_request(self, fs):
+        # fs: future 对象
         if fs.cancelled():
             self.nr_conns -= 1
             fs.conn.close()
@@ -250,6 +256,7 @@ class ThreadWorker(base.Worker):
                 # register the connection
                 conn.set_timeout()
                 with self._lock:
+                    # 将keepalived的连接放入self._keep, 然后注册回调事件
                     self._keep.append(conn)
                     # add the socket to the event loop
                     self.poller.register(conn.sock, selectors.EVENT_READ,
@@ -281,7 +288,6 @@ class ThreadWorker(base.Worker):
 
     # done
     def handle(self, conn):
-        keepalive = False
         req = None
         try:
             req = next(conn.parser)
@@ -297,6 +303,7 @@ class ThreadWorker(base.Worker):
         except http.errors.NoMoreData as e:
             self.log.debug("Ignored premature client disconnection. %s", e)
         except StopIteration as e:
+            #  finish_request 中会关闭连接
             self.log.debug("Closing connection. %s", e)
         except ssl.SSLError as e:
             if e.args[0] == ssl.SSL_ERROR_EOF:

@@ -75,7 +75,8 @@ def base_environ(cfg):
         "wsgi.multithread": False,
         "wsgi.multiprocess": (cfg.workers > 1),
         "wsgi.run_once": False,
-        "wsgi.file_wrapper": FileWrapper,           # todo
+        # application的返回值可以是FileWrapper(or iterable)
+        "wsgi.file_wrapper": FileWrapper,
         "wsgi.input_terminated": True,
         "SERVER_SOFTWARE": SERVER_SOFTWARE,
     }
